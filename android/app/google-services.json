@@ -1,0 +1,143 @@
+{
+  "project_info": {
+    "project_number": "167610246520",
+    "firebase_url": "https://rapidwarn-default-rtdb.firebaseio.com",
+    "project_id": "rapidwarn",
+    "storage_bucket": "rapidwarn.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:167610246520:android:1fe28f038c549e9262548d",
+        "android_client_info": {
+          "package_name": "com.company.rapidwarn"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "167610246520-468he1eq45s8e06k5bpa0kk7kse27ic2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.company.rapidwarn",
+            "certificate_hash": "2b205f14d73b8d99cd0feed076008f340b86d321"
+          }
+        },
+        {
+          "client_id": "167610246520-oenvgrst8rum8ak11oql7en2o7a361ot.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjp4sMlXOI6uEJCVVSktBeuSf6O2UifVM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "167610246520-4pnmf2fo9qtkti9f1ho74fgcds16qraq.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "167610246520-22dnqlndh2o4oaqkdp7mukmmr4qs27sc.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.rapidwarn"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:167610246520:android:dfa6dbfad488b78c62548d",
+        "android_client_info": {
+          "package_name": "com.example.RapidWarn"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "167610246520-ak63rntoumgqst11sdhc67uef8t73eh3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.RapidWarn",
+            "certificate_hash": "2b205f14d73b8d99cd0feed076008f340b86d321"
+          }
+        },
+        {
+          "client_id": "167610246520-oenvgrst8rum8ak11oql7en2o7a361ot.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjp4sMlXOI6uEJCVVSktBeuSf6O2UifVM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "167610246520-4pnmf2fo9qtkti9f1ho74fgcds16qraq.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "167610246520-22dnqlndh2o4oaqkdp7mukmmr4qs27sc.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.rapidwarn"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:167610246520:android:ed55733d6c803bf062548d",
+        "android_client_info": {
+          "package_name": "com.example.rapidwarn"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "167610246520-p2n07q0mts67dgul17b2p5ebdtecks5t.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.rapidwarn",
+            "certificate_hash": "2b205f14d73b8d99cd0feed076008f340b86d321"
+          }
+        },
+        {
+          "client_id": "167610246520-oenvgrst8rum8ak11oql7en2o7a361ot.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjp4sMlXOI6uEJCVVSktBeuSf6O2UifVM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "167610246520-4pnmf2fo9qtkti9f1ho74fgcds16qraq.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "167610246520-22dnqlndh2o4oaqkdp7mukmmr4qs27sc.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.rapidwarn"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

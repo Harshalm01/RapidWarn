@@ -1,0 +1,59 @@
+name: rapidwarn
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  geolocator: ^10.0.1
+  flutter_animate: ^4.5.0
+  uuid: ^4.0.0
+  cupertino_icons: ^1.0.8
+  firebase_core: ^2.31.0
+  firebase_auth: ^4.16.0
+  google_sign_in: ^6.2.1
+  firebase_storage: ^11.7.0
+  image_picker: ^1.1.0
+  cloud_firestore: ^4.17.0
+  video_player: ^2.8.6
+  chewie: ^1.7.5
+  lottie: ^2.7.0
+  confetti: ^0.7.0
+  background_bubbles: ^1.0.2
+  supabase_flutter: ^2.0.0
+  permission_handler: ^11.2.0
+  shared_preferences: ^2.2.3 
+  google_fonts: ^6.1.0 
+  slide_to_act: ^2.0.1
+  just_audio: ^0.9.35
+  audioplayers: ^5.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/icon.jpg"
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/login_bg.jpg
+    - assets/google_logo.png
+    - assets/images/icon.jpg
+    - assets/animation/login_animation.json
+    - assets/animation/onboard1.json
+    - assets/animation/onboard2.json
+    - assets/animation/onboard3.json
+    - assets/animation/fog_smoke.json
+    - assets/sounds/success.mp3
