@@ -82,9 +82,9 @@ class PurposeScreen extends StatelessWidget {
 
                   const Spacer(),
 
-                  /// ✅ Slide to Login WITH sound
+                  /// Single Slide to Continue (Login/Register)
                   SlideAction(
-                    text: 'SLIDE TO LOGIN',
+                    text: 'SLIDE TO CONTINUE',
                     textStyle: const TextStyle(
                       color: Colors.black,
                       fontSize: 18,
@@ -94,43 +94,14 @@ class PurposeScreen extends StatelessWidget {
                     innerColor: Colors.black,
                     elevation: 6,
                     sliderButtonIcon:
-                        const Icon(Icons.login, color: Colors.white),
+                        const Icon(Icons.arrow_forward, color: Colors.white),
                     onSubmit: () async {
                       final player = AudioPlayer();
                       await player.play(AssetSource('sounds/success.mp3'));
-
                       await Future.delayed(const Duration(milliseconds: 300));
                       Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      );
-                      return null;
-                    },
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  /// ✅ Slide to Sign Up WITH sound
-                  SlideAction(
-                    text: 'SLIDE TO SIGN UP',
-                    textStyle: const TextStyle(
-                      color: Colors.black,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    outerColor: Colors.white,
-                    innerColor: Colors.tealAccent,
-                    elevation: 6,
-                    sliderButtonIcon:
-                        const Icon(Icons.person_add, color: Colors.black),
-                    onSubmit: () async {
-                      final player = AudioPlayer();
-                      await player.play(AssetSource('sounds/success.mp3'));
-
-                      await Future.delayed(const Duration(milliseconds: 300));
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (_) => const SignUpScreen()),
                       );
                       return null;
                     },

@@ -6,11 +6,11 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("dev.flutter.flutter-gradle-plugin") // ✅ Flutter plugin AFTER Android
-    id("com.google.gms.google-services") // ✅ Google Services plugin
+    id("dev.flutter.flutter-gradle-plugin") // Flutter plugin AFTER Android
+    id("com.google.gms.google-services") // Google Services plugin
 }
 
-// ✅ Load keystore for release builds
+// Load keystore for release builds
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("android/key.properties")
 if (keystorePropertiesFile.exists()) {
@@ -21,12 +21,12 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.example.rapidwarn" // ✅ Update if needed
+    namespace = "com.example.rapidwarn" // Change to your app's package name
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "27.0.12077973"
 
     defaultConfig {
-        applicationId = "com.example.rapidwarn"
+        applicationId = "com.example.rapidwarn" // Change if needed
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -36,6 +36,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -72,13 +73,17 @@ flutter {
 }
 
 dependencies {
-    // ✅ Firebase BOM for consistent versions
+    // Firebase BOM for consistent versions
     implementation(platform("com.google.firebase:firebase-bom:32.8.1"))
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-analytics-ktx")
 
-    // ✅ AndroidX Core
+    // AndroidX Core
     implementation("androidx.core:core-ktx:1.13.1")
 
-    // ✅ Vibration plugin dependency is handled by Flutter, no manual JARs needed
+    // Google Maps
+    implementation("com.google.android.gms:play-services-maps:18.2.0")
+
+    // Core library desugaring for Java 8+ APIs (required by flutter_local_notifications)
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }

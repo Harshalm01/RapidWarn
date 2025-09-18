@@ -18,20 +18,31 @@ dependencies:
   firebase_auth: ^4.16.0
   google_sign_in: ^6.2.1
   firebase_storage: ^11.7.0
-  image_picker: ^1.1.0
   cloud_firestore: ^4.17.0
   video_player: ^2.8.6
   chewie: ^1.7.5
   lottie: ^2.7.0
   confetti: ^0.7.0
   background_bubbles: ^1.0.2
-  supabase_flutter: ^2.0.0
+  supabase_flutter: ^2.5.0
   permission_handler: ^11.2.0
   shared_preferences: ^2.2.3 
   google_fonts: ^6.1.0 
   slide_to_act: ^2.0.1
   just_audio: ^0.9.35
   audioplayers: ^5.2.0
+  fl_chart: ^1.0.0
+  intl: ^0.18.0
+  firebase_messaging: ^14.7.10
+  google_maps_flutter: ^2.9.000
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  local_auth: ^2.2.0
+  flutter_secure_storage: ^9.0.0
+  http: ^1.2.1
+  pin_code_fields: ^8.0.1
+  image_picker: ^1.0.4
+  flutter_local_notifications: ^17.2.1
 
 dev_dependencies:
   flutter_test:
@@ -57,3 +68,7 @@ flutter:
     - assets/animation/onboard3.json
     - assets/animation/fog_smoke.json
     - assets/sounds/success.mp3
+    - assets/icons/fire.png
+    - assets/icons/riot.png
+    - assets/icons/accident.png
+    - assets/icons/stampede.png

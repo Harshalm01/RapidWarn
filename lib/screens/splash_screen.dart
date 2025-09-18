@@ -21,13 +21,14 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _controller = AnimationController(vsync: this);
 
+    // When animation completes → go next
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         _goNext();
       }
     });
 
-    // Safety fallback
+    // Safety fallback (6s max wait)
     Future.delayed(const Duration(seconds: 6), () {
       if (mounted && !_controller.isCompleted) {
         _goNext();
@@ -38,12 +39,8 @@ class _SplashScreenState extends State<SplashScreen>
   void _goNext() {
     final user = FirebaseAuth.instance.currentUser;
 
-    Widget next;
-    if (user != null) {
-      next = const HomeScreen();
-    } else {
-      next = const OnboardingScreen();
-    }
+    Widget next =
+        (user != null) ? const HomeScreen() : const OnboardingScreen();
 
     if (!mounted) return;
     Navigator.pushReplacement(
