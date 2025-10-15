@@ -3,11 +3,13 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/email_service.dart';
 import 'dart:math';
 import 'home_screen.dart';
+import 'admin_login_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,14 +19,115 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  // Register password visibility toggles
+  bool _obscureSignupPassword = true;
+  bool _obscureSignupConfirmPassword = true;
+  Future<void> _showForgotPasswordDialog() async {
+    final TextEditingController emailController = TextEditingController();
+    String? errorMessage;
+    bool isLoading = false;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+              title: const Text('Reset Password',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(
+                      labelText: 'Email Address',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      filled: true,
+                      fillColor: Colors.grey[50],
+                    ),
+                    style: const TextStyle(color: Colors.black),
+                  ),
+                  if (errorMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Text(errorMessage!,
+                        style: const TextStyle(color: Colors.red)),
+                  ]
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isLoading ? null : () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: isLoading
+                      ? null
+                      : () async {
+                          final email = emailController.text.trim();
+                          if (email.isEmpty ||
+                              !email.contains('@') ||
+                              !email.contains('.')) {
+                            setState(() => errorMessage =
+                                'Please enter a valid email address.');
+                            return;
+                          }
+                          setState(() => isLoading = true);
+                          try {
+                            await _auth.sendPasswordResetEmail(email: email);
+                            if (mounted) {
+                              Navigator.of(ctx).pop();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content:
+                                        Text('Password reset email sent!')),
+                              );
+                            }
+                          } on fb_auth.FirebaseAuthException catch (e) {
+                            setState(() {
+                              errorMessage =
+                                  e.message ?? 'Failed to send reset email.';
+                              isLoading = false;
+                            });
+                          } catch (_) {
+                            setState(() {
+                              errorMessage = 'Failed to send reset email.';
+                              isLoading = false;
+                            });
+                          }
+                        },
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Send Reset Link'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Password visibility toggle
+  bool _obscurePassword = true;
+
   // Email OTP login state
   String? _emailOtpErrorMessage;
   bool _isEmailOtpLoading = false;
   String? _sentOtp;
-
   Future<void> _loginWithEmailOtp(BuildContext context) async {
     String email = '';
     String enteredOtp = '';
+    final emailController = TextEditingController();
+    final otpController = TextEditingController();
     _emailOtpErrorMessage = null;
     _sentOtp = null;
     _isEmailOtpLoading = false;
@@ -48,9 +151,27 @@ class _LoginScreenState extends State<LoginScreen> {
                   Text(
                     _sentOtp == null
                         ? 'Enter your email to receive a One-Time Password (OTP).'
-                        : 'Enter the 6-digit OTP sent to $email',
+                        : 'Enter the 6-digit OTP sent to',
                     style: const TextStyle(fontSize: 14, color: Colors.black54),
                   ),
+                  if (_sentOtp != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.email_outlined,
+                              size: 18, color: Colors.black54),
+                          const SizedBox(width: 6),
+                          Text(
+                            email,
+                            style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.black87,
+                                fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
               content: SizedBox(
@@ -60,8 +181,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     if (_sentOtp == null)
                       TextField(
+                        controller: emailController,
                         keyboardType: TextInputType.emailAddress,
                         autofocus: true,
+                        style: const TextStyle(color: Colors.black),
                         decoration: InputDecoration(
                           labelText: 'Email Address',
                           hintText: 'example@email.com',
@@ -75,10 +198,27 @@ class _LoginScreenState extends State<LoginScreen> {
                         enabled: _sentOtp == null,
                       ),
                     if (_sentOtp != null) ...[
+                      TextField(
+                        controller: TextEditingController(text: email),
+                        enabled: false,
+                        decoration: InputDecoration(
+                          labelText: 'Email',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          prefixIcon: const Icon(Icons.email_outlined),
+                          filled: true,
+                          fillColor: Colors.grey[100],
+                        ),
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                      const SizedBox(height: 12),
                       PinCodeTextField(
                         appContext: context,
                         length: 6,
-                        onChanged: (val) => enteredOtp = val,
+                        controller: otpController,
+                        onChanged: (val) {
+                          enteredOtp = val;
+                        },
                         pinTheme: PinTheme(
                           shape: PinCodeFieldShape.box,
                           borderRadius: BorderRadius.circular(8),
@@ -88,7 +228,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           selectedColor: Colors.blue,
                           inactiveColor: Colors.grey[300]!,
                         ),
+                        textStyle: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20),
                         keyboardType: TextInputType.number,
+                        obscureText: false,
                       ),
                       const SizedBox(height: 8),
                       Text('Didn\'t receive the code? Check your spam folder.',
@@ -109,6 +254,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     onPressed: _isEmailOtpLoading
                         ? null
                         : () async {
+                            email = emailController.text.trim();
                             // Validate email first
                             if (email.isEmpty ||
                                 !email.contains('@') ||
@@ -158,32 +304,39 @@ class _LoginScreenState extends State<LoginScreen> {
                     onPressed: _isEmailOtpLoading
                         ? null
                         : () async {
+                            enteredOtp = otpController.text;
                             setState(() => _isEmailOtpLoading = true);
                             if (enteredOtp == _sentOtp) {
                               // After OTP verification, sign in or create Firebase user
                               final fb_auth.FirebaseAuth _auth =
                                   fb_auth.FirebaseAuth.instance;
-                              // Create a secure random password for this session
-                              final randomPassword =
-                                  'RapidWarnOtp_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999999)}';
-
+                              // Use a deterministic password for OTP login (not secure for production)
+                              final otpPassword = 'RapidWarnOtp_${email}_2025';
                               try {
-                                // Try to create user first (most common case for OTP login)
-                                await _auth.createUserWithEmailAndPassword(
-                                    email: email, password: randomPassword);
+                                // Try to create user first
+                                final cred =
+                                    await _auth.createUserWithEmailAndPassword(
+                                        email: email, password: otpPassword);
+                                // Store new user in databases
+                                if (cred.user != null) {
+                                  await _syncUserToSupabase(cred.user!);
+                                }
                               } on fb_auth.FirebaseAuthException catch (e) {
                                 if (e.code == 'email-already-in-use') {
-                                  // User exists, try to sign them in with custom token or handle differently
-                                  // For OTP-based login, we'll create a custom solution
+                                  // User exists, sign them in with the same password
                                   try {
-                                    // Since user exists, we'll delete and recreate (not recommended for production)
-                                    // Better solution: Use Firebase custom tokens or phone auth
-                                    await _auth.createUserWithEmailAndPassword(
-                                        email: email, password: randomPassword);
+                                    final cred =
+                                        await _auth.signInWithEmailAndPassword(
+                                            email: email,
+                                            password: otpPassword);
+                                    // Update existing user in databases
+                                    if (cred.user != null) {
+                                      await _syncUserToSupabase(cred.user!);
+                                    }
                                   } catch (e2) {
                                     setState(() {
                                       _emailOtpErrorMessage =
-                                          'Email already registered. Please use a different login method.';
+                                          'Login failed. Please try again.';
                                       _isEmailOtpLoading = false;
                                     });
                                     return;
@@ -272,17 +425,34 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  /// 🔄 Sync user from Firebase → Supabase
+  /// 🔄 Sync user from Firebase → Supabase & Firestore
   Future<void> _syncUserToSupabase(fb_auth.User user) async {
     try {
+      // Store in Supabase
       await supabase.from('users').upsert({
         'firebase_uid': user.uid,
         'email': user.email,
         'role': 'user',
         'created_at': DateTime.now().toIso8601String(),
       }, onConflict: 'firebase_uid');
+
+      // Try to store in Firestore for admin dashboard
+      try {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'firebase_uid': user.uid,
+          'email': user.email,
+          'role': 'user',
+          'created_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        debugPrint("✅ User synced to both Supabase and Firestore");
+      } catch (firestoreError) {
+        debugPrint(
+            "⚠️ Firestore permission error (user stored in Supabase): $firestoreError");
+        // Continue anyway - user is stored in Supabase
+      }
     } catch (e) {
       debugPrint("❌ Failed to sync user to Supabase: $e");
+      // Don't block login if sync fails
     }
   }
 
@@ -324,8 +494,12 @@ class _LoginScreenState extends State<LoginScreen> {
       if (kIsWeb) {
         fb_auth.GoogleAuthProvider googleProvider =
             fb_auth.GoogleAuthProvider();
+        // For web, prompt for account selection
+        googleProvider.setCustomParameters({'prompt': 'select_account'});
         cred = await _auth.signInWithPopup(googleProvider);
       } else {
+        // Always sign out first to force account picker
+        await GoogleSignIn().signOut();
         final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
         if (googleUser == null) return;
 
@@ -375,8 +549,14 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     try {
-      await _auth.createUserWithEmailAndPassword(
+      final cred = await _auth.createUserWithEmailAndPassword(
           email: email, password: password);
+
+      // Store user in both Supabase and Firestore
+      if (cred.user != null) {
+        await _syncUserToSupabase(cred.user!);
+      }
+
       if (!mounted) return;
       setState(() {
         _tabIndex = 0;
@@ -536,7 +716,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                       TextField(
                         controller: _passwordController,
-                        obscureText: true,
+                        obscureText: _obscurePassword,
                         style: const TextStyle(
                             color: Colors.black, fontWeight: FontWeight.w500),
                         decoration: InputDecoration(
@@ -546,8 +726,19 @@ class _LoginScreenState extends State<LoginScreen> {
                               fontWeight: FontWeight.w500),
                           prefixIcon: const Icon(Icons.lock_outline,
                               color: Colors.black45),
-                          suffixIcon: const Icon(Icons.visibility_outlined,
-                              color: Colors.black38),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: Colors.black38,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                          ),
                           filled: true,
                           fillColor: const Color(0xFFF5F6FA),
                           border: OutlineInputBorder(
@@ -573,7 +764,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               style: TextStyle(color: Colors.black87)),
                           const Spacer(),
                           GestureDetector(
-                            onTap: () {},
+                            onTap: _showForgotPasswordDialog,
                             child: const Text('Forgot Password?',
                                 style: TextStyle(
                                     color: Color(0xFF7CA183),
@@ -623,7 +814,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 18),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
@@ -690,7 +880,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                       TextField(
                         controller: _signupPasswordController,
-                        obscureText: true,
+                        obscureText: _obscureSignupPassword,
                         style: const TextStyle(
                             color: Colors.black, fontWeight: FontWeight.w500),
                         decoration: InputDecoration(
@@ -700,6 +890,20 @@ class _LoginScreenState extends State<LoginScreen> {
                               fontWeight: FontWeight.w500),
                           prefixIcon: const Icon(Icons.lock_outline,
                               color: Colors.black45),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureSignupPassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: Colors.black38,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscureSignupPassword =
+                                    !_obscureSignupPassword;
+                              });
+                            },
+                          ),
                           filled: true,
                           fillColor: const Color(0xFFF5F6FA),
                           border: OutlineInputBorder(
@@ -713,7 +917,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                       TextField(
                         controller: _signupConfirmPasswordController,
-                        obscureText: true,
+                        obscureText: _obscureSignupConfirmPassword,
                         style: const TextStyle(
                             color: Colors.black, fontWeight: FontWeight.w500),
                         decoration: InputDecoration(
@@ -723,6 +927,20 @@ class _LoginScreenState extends State<LoginScreen> {
                               fontWeight: FontWeight.w500),
                           prefixIcon: const Icon(Icons.lock_outline,
                               color: Colors.black45),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureSignupConfirmPassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: Colors.black38,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscureSignupConfirmPassword =
+                                    !_obscureSignupConfirmPassword;
+                              });
+                            },
+                          ),
                           filled: true,
                           fillColor: const Color(0xFFF5F6FA),
                           border: OutlineInputBorder(
@@ -758,6 +976,52 @@ class _LoginScreenState extends State<LoginScreen> {
                             style: const TextStyle(color: Colors.redAccent)),
                       ],
                     ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Admin Login Button
+              Center(
+                child: Column(
+                  children: [
+                    const Text(
+                      'Emergency Officials & Administrators',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const AdminLoginScreen(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.admin_panel_settings,
+                          color: Colors.orange, size: 22),
+                      label: const Text(
+                        'Admin Dashboard Login',
+                        style: TextStyle(
+                          color: Colors.orange,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side:
+                            const BorderSide(color: Colors.orange, width: 1.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        backgroundColor: Colors.orange.withOpacity(0.05),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 16),
+                      ),
+                    ),
                   ],
                 ),
               ),

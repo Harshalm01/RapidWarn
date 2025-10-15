@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'home_screen.dart';
 import 'onboarding_screen.dart';
+import 'admin_dashboard_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -36,17 +38,51 @@ class _SplashScreenState extends State<SplashScreen>
     });
   }
 
-  void _goNext() {
-    final user = FirebaseAuth.instance.currentUser;
+  void _goNext() async {
+    try {
+      // Check for persistent admin session first
+      final prefs = await SharedPreferences.getInstance();
+      final isAdminLoggedIn = prefs.getBool('admin_logged_in') ?? false;
+      final adminPhone = prefs.getString('admin_phone') ?? '';
 
-    Widget next =
-        (user != null) ? const HomeScreen() : const OnboardingScreen();
+      if (isAdminLoggedIn && adminPhone == '9324476116') {
+        print('🔄 Restoring admin session for $adminPhone');
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+        );
+        return;
+      }
 
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => next),
-    );
+      // Check for regular user Firebase Auth session
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        print('🔄 Restoring user session for ${user.email}');
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+        return;
+      }
+
+      // No session found - go to onboarding
+      print('🔄 No session found - showing onboarding');
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+      );
+    } catch (e) {
+      print('❌ Error checking authentication state: $e');
+      // Fallback to onboarding on error
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+      );
+    }
   }
 
   @override

@@ -66,11 +66,11 @@ class _ReportIncidentScreenState extends State<ReportIncidentScreen> {
     setState(() => _loading = true);
 
     try {
-      // Upload file to Supabase Storage
+      // Upload file to Supabase Storage directly to media bucket root
       final fileName =
-          "incidents/${DateTime.now().millisecondsSinceEpoch}_${_mediaFile!.path.split('/').last}";
-      await supabase.storage.from("uploads").upload(fileName, _mediaFile!);
-      final publicUrl = supabase.storage.from("uploads").getPublicUrl(fileName);
+          "${DateTime.now().millisecondsSinceEpoch}_${_mediaFile!.path.split('/').last}";
+      await supabase.storage.from("media").upload(fileName, _mediaFile!);
+      final publicUrl = supabase.storage.from("media").getPublicUrl(fileName);
 
       // Get location
       final pos = await _getLocation();

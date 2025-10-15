@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:background_bubbles/background_bubbles.dart';
 
 import 'home_screen.dart';
@@ -28,10 +29,28 @@ class _AuthSwipeScreenState extends State<AuthSwipeScreen> {
   Future<void> _login() async {
     setState(() => _isLoading = true);
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final userCredential =
+          await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _loginEmail.text.trim(),
         password: _loginPass.text.trim(),
       );
+
+      // Update last login time in Firestore
+      final user = userCredential.user;
+      if (user != null) {
+        try {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .update({
+            'last_login': FieldValue.serverTimestamp(),
+          });
+          print('✅ User login updated in Firestore: ${user.email}');
+        } catch (e) {
+          print('⚠️ Failed to update login time: $e');
+        }
+      }
+
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -47,10 +66,30 @@ class _AuthSwipeScreenState extends State<AuthSwipeScreen> {
   Future<void> _signup() async {
     setState(() => _isLoading = true);
     try {
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      // Create Firebase Auth user
+      final userCredential =
+          await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _signupEmail.text.trim(),
         password: _signupPass.text.trim(),
       );
+
+      // Store user data in Firestore for admin dashboard
+      final user = userCredential.user;
+      if (user != null) {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'uid': user.uid,
+          'email': user.email,
+          'displayName': user.displayName ?? 'Anonymous User',
+          'created_at': FieldValue.serverTimestamp(),
+          'last_login': FieldValue.serverTimestamp(),
+          'status': 'active',
+          'role': 'user',
+          'phone': null, // Can be updated later
+          'profile_image': null,
+        });
+        print('✅ User data stored in Firestore: ${user.email}');
+      }
+
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -58,6 +97,8 @@ class _AuthSwipeScreenState extends State<AuthSwipeScreen> {
       );
     } on FirebaseAuthException catch (e) {
       _showSnack(e.message ?? 'Signup failed');
+    } catch (e) {
+      _showSnack('Failed to create user profile: $e');
     } finally {
       setState(() => _isLoading = false);
     }

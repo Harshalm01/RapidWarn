@@ -40,7 +40,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       String fileName =
           'profile_${widget.user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
-      await supabaseClient.storage.from('useruploads').uploadBinary(
+      await supabaseClient.storage.from('media').uploadBinary(
             fileName,
             fileBytes,
             fileOptions: const supabase.FileOptions(
@@ -50,7 +50,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           );
 
       final publicUrl =
-          supabaseClient.storage.from('useruploads').getPublicUrl(fileName);
+          supabaseClient.storage.from('media').getPublicUrl(fileName);
 
       await widget.user.updatePhotoURL(publicUrl);
 

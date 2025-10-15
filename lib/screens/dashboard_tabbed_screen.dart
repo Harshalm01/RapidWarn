@@ -39,11 +39,8 @@ class _DashboardTabbedScreenState extends State<DashboardTabbedScreen> {
       Uint8List bytes = await picked.readAsBytes();
       String fileName =
           'profile_${widget.user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      await supabaseClient.storage
-          .from('useruploads')
-          .uploadBinary(fileName, bytes);
-      final url =
-          supabaseClient.storage.from('useruploads').getPublicUrl(fileName);
+      await supabaseClient.storage.from('media').uploadBinary(fileName, bytes);
+      final url = supabaseClient.storage.from('media').getPublicUrl(fileName);
       await widget.user.updatePhotoURL(url);
       if (!mounted) return;
       setState(() {});
