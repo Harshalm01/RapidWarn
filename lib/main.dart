@@ -13,6 +13,8 @@ import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/current_status_screen.dart';
 import 'screens/admin_dashboard_screen.dart'; // ✅ Admin Dashboard
+import 'services/notification_service.dart'; // ✅ Notification Service
+import 'services/user_location_service.dart'; // ✅ User Location Service
 
 // -------------------- THEME --------------------
 final ValueNotifier<ThemeMode> themeMode = ValueNotifier(ThemeMode.system);
@@ -104,6 +106,16 @@ Future<void> main() async {
   // ✅ Get FCM token
   final token = await FirebaseMessaging.instance.getToken();
   debugPrint("📱 FCM Token: $token");
+
+  // ✅ Initialize NotificationService
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+
+  // ✅ Initialize UserLocationService for nearby user detection
+  final userLocationService = UserLocationService();
+  await userLocationService.initialize();
+  // Start tracking location in background for disaster alerts
+  await userLocationService.startLocationTracking();
 
   runApp(const MyApp());
 }

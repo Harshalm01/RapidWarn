@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../main.dart'; // for themeMode
+import 'notification_settings_screen.dart';
 
 final supabaseClient = supabase.Supabase.instance.client;
 
@@ -227,7 +228,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           subtitle: const Text("Stay updated with latest alerts."),
           trailing: const Icon(Icons.arrow_forward_ios),
           onTap: () {
-            // TODO: Navigate to notifications screen
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const NotificationSettingsScreen(),
+              ),
+            );
           },
         ),
       );

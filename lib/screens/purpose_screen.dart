@@ -4,7 +4,6 @@ import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart'; // ✅ ADD THIS!
 
 import 'login_screen.dart';
-import 'signup_screen.dart';
 
 class PurposeScreen extends StatelessWidget {
   const PurposeScreen({super.key});

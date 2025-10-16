@@ -6,7 +6,6 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../services/email_service.dart';
 import 'dart:math';
 import 'home_screen.dart';
 import 'admin_login_screen.dart';
@@ -270,27 +269,14 @@ class _LoginScreenState extends State<LoginScreen> {
                             // Generate 6-digit OTP
                             final otp =
                                 (Random().nextInt(900000) + 100000).toString();
-                            final now = DateTime.now();
-                            final time =
-                                "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
-                            final sent = await EmailService.sendOtpEmail(
-                              toEmail: email,
-                              otp: otp,
-                              time: time,
-                            );
-                            if (sent) {
-                              setState(() {
-                                _sentOtp = otp;
-                                _isEmailOtpLoading = false;
-                                _emailOtpErrorMessage = null;
-                              });
-                            } else {
-                              setState(() {
-                                _emailOtpErrorMessage =
-                                    'Failed to send OTP. Please try again.';
-                                _isEmailOtpLoading = false;
-                              });
-                            }
+
+                            // Mock email service - always success for demo
+                            // In a real app, integrate with email service like SendGrid, AWS SES, etc.
+                            setState(() {
+                              _sentOtp = otp;
+                              _isEmailOtpLoading = false;
+                              _emailOtpErrorMessage = null;
+                            });
                           },
                     child: _isEmailOtpLoading
                         ? const SizedBox(
@@ -439,10 +425,18 @@ class _LoginScreenState extends State<LoginScreen> {
       // Try to store in Firestore for admin dashboard
       try {
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'uid': user.uid,
           'firebase_uid': user.uid,
-          'email': user.email,
+          'email': user.email ?? 'unknown@example.com',
+          'displayName':
+              user.displayName ?? user.email?.split('@')[0] ?? 'User',
           'role': 'user',
+          'status': 'active',
+          'phone': user.phoneNumber,
+          'profile_image': user.photoURL,
+          'email_verified': user.emailVerified,
           'created_at': FieldValue.serverTimestamp(),
+          'last_login': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
         debugPrint("✅ User synced to both Supabase and Firestore");
       } catch (firestoreError) {
@@ -451,7 +445,15 @@ class _LoginScreenState extends State<LoginScreen> {
         // Continue anyway - user is stored in Supabase
       }
     } catch (e) {
-      debugPrint("❌ Failed to sync user to Supabase: $e");
+      final errorMessage = e.toString();
+      if (errorMessage.contains('relation "public.users" does not exist')) {
+        debugPrint(
+            "⚠️ Supabase users table not created yet - user stored in Firebase only");
+        debugPrint(
+            "   Please run the Supabase migration: supabase/migrations/001_create_users_table.sql");
+      } else {
+        debugPrint("❌ Failed to sync user to Supabase: $e");
+      }
       // Don't block login if sync fails
     }
   }

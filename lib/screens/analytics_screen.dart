@@ -726,4 +726,33 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     return insights;
   }
+
+  // Get filtered stream based on selected time range
+  Stream<QuerySnapshot> _getFilteredStream() {
+    final now = DateTime.now();
+    DateTime startTime;
+
+    switch (_selectedTimeRange) {
+      case '24 hours':
+        startTime = now.subtract(const Duration(hours: 24));
+        break;
+      case '7 days':
+        startTime = now.subtract(const Duration(days: 7));
+        break;
+      case '30 days':
+        startTime = now.subtract(const Duration(days: 30));
+        break;
+      case '90 days':
+        startTime = now.subtract(const Duration(days: 90));
+        break;
+      default:
+        startTime = now.subtract(const Duration(days: 7));
+    }
+
+    return FirebaseFirestore.instance
+        .collection('insights')
+        .where('timestamp', isGreaterThanOrEqualTo: startTime)
+        .orderBy('timestamp', descending: true)
+        .snapshots();
+  }
 }

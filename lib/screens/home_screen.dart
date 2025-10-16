@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:cloud_firestore/cloud_firestore.dart'; // ✅ Add Firestore for loading existing alerts
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as latLng2;
@@ -10,12 +11,246 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/location_alerts_service.dart';
 import '../services/offline_mode_service.dart';
+import '../services/notification_service.dart';
+import '../services/user_location_service.dart'; // ✅ Add UserLocationService
 import '../screens/more_screen.dart';
 import '../main.dart' show notificationHistory, AppNotification;
 
 // Supabase table used for saving user-submitted entries. Updated to 'insights'
 // to match newly added RLS policies.
 const String kInsightsTable = 'insights';
+
+// ✅ Disaster marker info class for enhanced markers
+class DisasterMarkerInfo {
+  final latLng2.LatLng position;
+  final String disasterType;
+  final String? mediaUrl;
+  final DateTime timestamp;
+
+  DisasterMarkerInfo({
+    required this.position,
+    required this.disasterType,
+    this.mediaUrl,
+    required this.timestamp,
+  });
+}
+
+// ✅ Disaster details dialog with media preview
+class DisasterDetailsDialog extends StatelessWidget {
+  final DisasterMarkerInfo info;
+
+  const DisasterDetailsDialog({Key? key, required this.info}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 400, maxHeight: 600),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                _getDisasterIcon(info.disasterType),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${info.disasterType.toUpperCase()} DETECTED',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        _formatTimestamp(info.timestamp),
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close, color: Colors.white70),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // Media preview
+            if (info.mediaUrl != null) ...[
+              Container(
+                width: double.infinity,
+                height: 250,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.grey[800],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    info.mediaUrl!,
+                    fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.broken_image,
+                                color: Colors.white54, size: 48),
+                            SizedBox(height: 8),
+                            Text('Media not available',
+                                style: TextStyle(color: Colors.white54)),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Location info
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Location Details',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.location_on,
+                          color: Colors.red, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Lat: ${info.position.latitude.toStringAsFixed(6)}\nLng: ${info.position.longitude.toStringAsFixed(6)}',
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      // TODO: Navigate to full screen media viewer
+                    },
+                    icon: const Icon(Icons.fullscreen),
+                    label: const Text('View Full'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      // TODO: Share or report functionality
+                    },
+                    icon: const Icon(Icons.share),
+                    label: const Text('Share Alert'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _getDisasterIcon(String disasterType) {
+    IconData iconData;
+    Color iconColor;
+
+    switch (disasterType.toLowerCase()) {
+      case 'fire':
+        iconData = Icons.local_fire_department;
+        iconColor = Colors.red;
+        break;
+      case 'accident':
+        iconData = Icons.car_crash;
+        iconColor = Colors.orange;
+        break;
+      case 'stampede':
+        iconData = Icons.groups;
+        iconColor = Colors.purple;
+        break;
+      case 'riot':
+        iconData = Icons.warning;
+        iconColor = Colors.yellow;
+        break;
+      default:
+        iconData = Icons.emergency;
+        iconColor = Colors.red;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: iconColor.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Icon(iconData, color: iconColor, size: 24),
+    );
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final difference = now.difference(timestamp);
+
+    if (difference.inMinutes < 60) {
+      return '${difference.inMinutes} minutes ago';
+    } else if (difference.inHours < 24) {
+      return '${difference.inHours} hours ago';
+    } else {
+      return '${difference.inDays} days ago';
+    }
+  }
+}
 
 // ------------------ NOTIFICATION SCREEN ------------------
 class NotificationScreen extends StatelessWidget {
@@ -622,6 +857,7 @@ class _MapHomeScreenState extends State<MapHomeScreen> {
     super.initState();
     _determinePositionAndMove();
     _initializeLocationAlerts();
+    _loadExistingDisasterAlerts(); // ✅ Load existing disaster alerts
   }
 
   Future<void> _determinePositionAndMove() async {
@@ -669,17 +905,68 @@ class _MapHomeScreenState extends State<MapHomeScreen> {
     if (type == null) {
       return const Icon(Icons.location_on, color: Colors.red, size: 36);
     }
+
+    // ✅ Enhanced disaster type mapping (case-insensitive)
+    final normalizedType = type.toLowerCase();
     final map = {
-      "Fire": "assets/icons/fire.png",
-      "Riot": "assets/icons/riot.png",
-      "Accident": "assets/icons/accident.png",
-      "Stampede": "assets/icons/stampede.png",
+      "fire": "assets/icons/fire.png",
+      "riot": "assets/icons/riot.png",
+      "accident": "assets/icons/accident.png",
+      "stampede": "assets/icons/stampede.png",
     };
-    final path = map[type];
+
+    final path = map[normalizedType];
     if (path == null) {
-      return const Icon(Icons.location_on, color: Colors.red, size: 36);
+      // ✅ Fallback to appropriate icon for unknown types
+      return Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: Colors.red,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: const Icon(Icons.emergency, color: Colors.white, size: 24),
+      );
     }
-    return Image.asset(path, width: 44, height: 44, fit: BoxFit.contain);
+
+    // ✅ Enhanced marker with shadow and border
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: Image.asset(
+          path,
+          width: 40,
+          height: 40,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              color: Colors.red,
+              child: const Icon(Icons.emergency, color: Colors.white, size: 24),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   // New: allow HomeScreen to add a disaster marker programmatically
@@ -695,6 +982,9 @@ class _MapHomeScreenState extends State<MapHomeScreen> {
       );
     });
   }
+
+  // Enhanced marker system that stores media info
+  final List<DisasterMarkerInfo> _disasterMarkersInfo = [];
 
   // Update existing marker at the same location with new disaster type
   void updateDisasterMarker(latLng2.LatLng pos, String disasterType) {
@@ -722,6 +1012,70 @@ class _MapHomeScreenState extends State<MapHomeScreen> {
     });
   }
 
+  // ✅ New method for updating markers with media info
+  void updateDisasterMarkerWithMedia(
+      latLng2.LatLng pos, String disasterType, String? mediaUrl) {
+    setState(() {
+      // Find and update marker at the same location
+      bool updated = false;
+      for (int i = 0; i < _disasterMarkersInfo.length; i++) {
+        final markerInfo = _disasterMarkersInfo[i];
+        final distance = _calculateDistance(markerInfo.position, pos);
+
+        if (distance < 0.05) {
+          // Update existing marker info
+          _disasterMarkersInfo[i] = DisasterMarkerInfo(
+            position: pos,
+            disasterType: disasterType,
+            mediaUrl: mediaUrl,
+            timestamp: DateTime.now(),
+          );
+          updated = true;
+          break;
+        }
+      }
+
+      if (!updated) {
+        // Add new marker info
+        _disasterMarkersInfo.add(DisasterMarkerInfo(
+          position: pos,
+          disasterType: disasterType,
+          mediaUrl: mediaUrl,
+          timestamp: DateTime.now(),
+        ));
+      }
+
+      // Rebuild disaster markers list
+      _rebuildDisasterMarkers();
+    });
+  }
+
+  // ✅ Rebuild markers from info list
+  void _rebuildDisasterMarkers() {
+    _disasterMarkers.clear();
+    for (final info in _disasterMarkersInfo) {
+      _disasterMarkers.add(
+        Marker(
+          point: info.position,
+          width: 44,
+          height: 44,
+          child: GestureDetector(
+            onTap: () => _showDisasterDetails(info),
+            child: _buildDisasterMarkerChild(info.disasterType),
+          ),
+        ),
+      );
+    }
+  }
+
+  // ✅ Show disaster details with media preview
+  void _showDisasterDetails(DisasterMarkerInfo info) {
+    showDialog(
+      context: context,
+      builder: (context) => DisasterDetailsDialog(info: info),
+    );
+  }
+
   // Calculate approximate distance between two points in degrees
   double _calculateDistance(latLng2.LatLng point1, latLng2.LatLng point2) {
     final latDiff = point1.latitude - point2.latitude;
@@ -738,6 +1092,60 @@ class _MapHomeScreenState extends State<MapHomeScreen> {
     await _locationAlertsService.initialize();
     await _locationAlertsService.startLocationMonitoring();
     await _offlineService.initialize();
+  }
+
+  // ✅ Load existing disaster alerts from Firestore
+  Future<void> _loadExistingDisasterAlerts() async {
+    try {
+      debugPrint('🔍 Loading existing disaster alerts...');
+
+      // Get recent disaster alerts (last 24 hours)
+      final now = DateTime.now();
+      final yesterday = now.subtract(const Duration(hours: 24));
+
+      final alertsQuery = await FirebaseFirestore.instance
+          .collection('disaster_alerts')
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(yesterday))
+          .where('status', isEqualTo: 'active')
+          .orderBy('timestamp', descending: true)
+          .limit(50)
+          .get();
+
+      final List<DisasterMarkerInfo> loadedAlerts = [];
+
+      for (var doc in alertsQuery.docs) {
+        final data = doc.data();
+        final latitude = data['latitude']?.toDouble();
+        final longitude = data['longitude']?.toDouble();
+        final disasterType = data['disaster_type'] as String?;
+        final mediaUrl = data['media_url'] as String?;
+        final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
+
+        if (latitude != null &&
+            longitude != null &&
+            disasterType != null &&
+            timestamp != null) {
+          loadedAlerts.add(DisasterMarkerInfo(
+            position: latLng2.LatLng(latitude, longitude),
+            disasterType: disasterType,
+            mediaUrl: mediaUrl,
+            timestamp: timestamp,
+          ));
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _disasterMarkersInfo.clear();
+          _disasterMarkersInfo.addAll(loadedAlerts);
+          _rebuildDisasterMarkers();
+        });
+
+        debugPrint('✅ Loaded ${loadedAlerts.length} existing disaster alerts');
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading existing disaster alerts: $e');
+    }
   }
 
   @override
@@ -800,6 +1208,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final supabase = Supabase.instance.client;
+  final NotificationService _notificationService = NotificationService();
+  final UserLocationService _userLocationService =
+      UserLocationService(); // ✅ Add UserLocationService
   bool _addMarkerMode = false; // retained for UI color state but no taps
   String? _pendingDisasterType;
   XFile? _pendingMedia;
@@ -858,7 +1269,8 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _handleInsightUpdate(PostgresChangePayload payload) {
+  void _handleInsightUpdate(PostgresChangePayload payload) async {
+    // ✅ Make async
     print('DEBUG: Received real-time update!');
     print('DEBUG: Payload: ${payload.toString()}');
     print('DEBUG: Old record: ${payload.oldRecord}');
@@ -871,9 +1283,12 @@ class _HomeScreenState extends State<HomeScreen> {
       final disasterType = newRecord['disaster_type'] as String?;
       final latitude = newRecord['latitude'] as double?;
       final longitude = newRecord['longitude'] as double?;
+      final mediaUrl = newRecord['media_url'] as String?; // ✅ Get media URL
+      final uploaderId =
+          fb_auth.FirebaseAuth.instance.currentUser?.uid; // ✅ Get uploader ID
 
       print(
-          'DEBUG: Extracted values - Type: $disasterType, Lat: $latitude, Lng: $longitude');
+          'DEBUG: Extracted values - Type: $disasterType, Lat: $latitude, Lng: $longitude, Media: $mediaUrl');
 
       if (disasterType != null && latitude != null && longitude != null) {
         print(
@@ -883,19 +1298,34 @@ class _HomeScreenState extends State<HomeScreen> {
         notificationHistory.insert(
           0,
           AppNotification(
-            title: "Disaster Classified",
+            title: "🚨 Disaster Classified",
             body:
                 "A $disasterType has been detected at your location based on your uploaded media.",
             timestamp: DateTime.now(),
           ),
         );
 
-        // Update map marker with classified type
+        // ✅ Send ACTUAL system notification using NotificationService with media info
+        await _notificationService.sendDisasterAlert(
+          disasterType: disasterType,
+          latitude: latitude,
+          longitude: longitude,
+          location: 'your uploaded location',
+          mediaUrl: mediaUrl, // ✅ Pass media URL for preview
+          uploaderId: uploaderId, // ✅ Pass uploader ID
+        );
+
+        debugPrint('✅ Disaster alert sent through NotificationService');
+
+        // Update map marker with classified type and media info
         final state = _mapKey.currentState;
         if (state != null) {
           print('DEBUG: Updating map marker...');
-          state.updateDisasterMarker(
-              latLng2.LatLng(latitude, longitude), disasterType);
+          state.updateDisasterMarkerWithMedia(
+            latLng2.LatLng(latitude, longitude),
+            disasterType,
+            mediaUrl, // ✅ Pass media URL to map
+          );
         } else {
           print('DEBUG: Map state is null!');
         }
@@ -905,9 +1335,17 @@ class _HomeScreenState extends State<HomeScreen> {
           print('DEBUG: Showing snackbar notification...');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('$disasterType detected at your location!'),
-              backgroundColor: Colors.orange,
+              content:
+                  Text('🚨 $disasterType detected! System notification sent.'),
+              backgroundColor: Colors.red,
               duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'VIEW',
+                textColor: Colors.white,
+                onPressed: () {
+                  // Navigate to notifications or alerts screen
+                },
+              ),
             ),
           );
           setState(() {}); // Refresh notification badge
@@ -1014,20 +1452,38 @@ class _HomeScreenState extends State<HomeScreen> {
   }) async {
     final ts = DateTime.now().microsecondsSinceEpoch;
     final name = '$ts.$ext';
+
+    debugPrint('📤 Starting upload to Supabase storage...');
+    debugPrint('📁 Bucket: media');
+    debugPrint('📄 File name: $name');
+    debugPrint('📦 Content type: $contentType');
+    debugPrint('💾 File size: ${bytes.length} bytes');
+
     try {
+      debugPrint('⬆️ Uploading binary data...');
       await supabase.storage.from('media').uploadBinary(
             name,
             bytes,
             fileOptions: FileOptions(contentType: contentType, upsert: false),
           );
+      debugPrint('✅ Upload successful, file path: $name');
       return name;
     } on StorageException catch (e) {
+      debugPrint('❌ Storage exception: ${e.message}');
+      debugPrint('🔍 Error details: ${e.toString()}');
       throw StorageException("${e.message} (bucket=media, path=$name)");
+    } catch (e) {
+      debugPrint('❌ Unexpected upload error: $e');
+      rethrow;
     }
   }
 
   Future<void> _uploadMediaAndReport(latLng2.LatLng latLng) async {
     if (_pendingMedia == null) return;
+
+    debugPrint('🚀 Starting media upload process...');
+    debugPrint('📍 Location: ${latLng.latitude}, ${latLng.longitude}');
+    debugPrint('📱 Media path: ${_pendingMedia!.path}');
 
     final file = File(_pendingMedia!.path);
     // Build a very safe object key and detect content type
@@ -1066,14 +1522,17 @@ class _HomeScreenState extends State<HomeScreen> {
       contentType = 'video/webm';
     }
     final mediaBytes = await file.readAsBytes();
+    debugPrint('📦 Media size: ${mediaBytes.length} bytes, type: $contentType');
 
     try {
       // 1) Upload media to Storage with fallbacks for folder and session
+      debugPrint('📤 Uploading to Supabase storage...');
       final uploadedPath = await _tryUploadWithFallbacks(
         bytes: mediaBytes,
         ext: ext,
         contentType: contentType,
       );
+      debugPrint('✅ Upload successful: $uploadedPath');
 
       // 2) Generate full public URL for the uploaded media
       final publicUrl =
@@ -1084,11 +1543,13 @@ class _HomeScreenState extends State<HomeScreen> {
       print('DEBUG: publicUrl = $publicUrl');
 
       // 3) Insert row into the 'insights' table using your schema
+      debugPrint('💾 Saving to insights table...');
       await _insertInsight(
         mediaUrl: publicUrl,
         latitude: latLng.latitude,
         longitude: latLng.longitude,
       );
+      debugPrint('✅ Database insert successful');
 
       // add success notification
       notificationHistory.insert(
@@ -1112,14 +1573,18 @@ class _HomeScreenState extends State<HomeScreen> {
           state.moveTo(latLng, 15);
         }
       }
+      debugPrint('🎉 Media upload and report process completed successfully');
     } on StorageException catch (e) {
       // Storage RLS or other storage errors
+      debugPrint('❌ Storage error: ${e.message}');
       _showStorageError(e.message);
     } on PostgrestException catch (e) {
       // Database insert RLS or other PostgREST errors
+      debugPrint('❌ Database error: ${_formatPostgrestError(e)}');
       _showDbError(_formatPostgrestError(e));
     } catch (e) {
       // add error notification (storage or insert). Keep message visible to user.
+      debugPrint('❌ General error: $e');
       _showGenericError(e);
     } finally {
       if (mounted) {
@@ -1143,17 +1608,39 @@ class _HomeScreenState extends State<HomeScreen> {
     required double latitude,
     required double longitude,
   }) async {
-    // Debug: Print what we're inserting into the database
-    print('DEBUG: Inserting media_url = $mediaUrl');
+    debugPrint('🔄 Starting database insert...');
+    debugPrint('📊 Media URL: $mediaUrl');
+    debugPrint('📍 Coordinates: ($latitude, $longitude)');
 
-    await supabase.from(kInsightsTable).insert({
-      // ML will classify disaster_type later
+    try {
+      // ✅ Store upload location for nearby user analysis
+      debugPrint('📍 Storing location in UserLocationService...');
+      await _userLocationService.storeMediaUploadLocation(latitude, longitude);
+      debugPrint('✅ Location stored successfully');
+    } catch (e) {
+      debugPrint('⚠️ UserLocationService error (non-critical): $e');
+      // Continue with database insert even if location service fails
+    }
+
+    final currentUser = fb_auth.FirebaseAuth.instance.currentUser;
+    debugPrint('👤 Current user ID: ${currentUser?.uid}');
+
+    // Use Firebase Firestore instead of Supabase for insights
+    final insertData = {
       'media_url': mediaUrl,
       'latitude': latitude,
       'longitude': longitude,
       'processed': false,
-      'created_at': DateTime.now().toIso8601String(),
-    });
+      'created_at': FieldValue.serverTimestamp(),
+      'uploader_id': currentUser?.uid,
+      'disaster_type': null, // Will be set by ML classification
+    };
+
+    debugPrint('📦 Insert data: $insertData');
+
+    // Insert into Firebase Firestore instead of Supabase
+    await FirebaseFirestore.instance.collection('insights').add(insertData);
+    debugPrint('✅ Database insert completed successfully in Firebase');
   }
 
   // Removed: _chooseDisasterTypeDialog; ML will predict disaster type.
@@ -1207,9 +1694,77 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _testStorageConnectivity() async {
+    debugPrint('🧪 Testing Supabase storage connectivity...');
+
+    try {
+      // Test 1: Check if we can list buckets
+      debugPrint('🔍 Testing bucket access...');
+
+      // Test 2: Try a simple operation (list files in media bucket)
+      debugPrint('📂 Listing files in media bucket...');
+      final response = await supabase.storage.from('media').list();
+      debugPrint('✅ Storage accessible, found ${response.length} files');
+
+      // Test 3: Check user authentication
+      final user = fb_auth.FirebaseAuth.instance.currentUser;
+      debugPrint('👤 Current user: ${user?.uid ?? 'null'}');
+      debugPrint('📧 User email: ${user?.email ?? 'null'}');
+
+      // Test 4: Check insights table structure
+      debugPrint('🔍 Testing insights table access...');
+      try {
+        final insightsTest = await supabase.from('insights').select().limit(1);
+        debugPrint('✅ Insights table accessible, sample data: $insightsTest');
+      } catch (e) {
+        debugPrint('❌ Insights table error: $e');
+        // Try to create a minimal entry to see what columns are expected
+        try {
+          await supabase.from('insights').insert({
+            'media_url': 'test_url',
+            'latitude': 0.0,
+            'longitude': 0.0,
+          });
+          debugPrint('✅ Basic insights insert works');
+        } catch (insertError) {
+          debugPrint('❌ Basic insights insert failed: $insertError');
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text('Storage test passed! Found ${response.length} files')),
+        );
+      }
+    } on StorageException catch (e) {
+      debugPrint('❌ Storage test failed: ${e.message}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Storage test failed: ${e.message}')),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Storage test error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Storage test error: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _startDisasterReportFlow() async {
+    debugPrint('🎬 Starting disaster report flow...');
+
     final media = await _chooseMediaDialog();
-    if (media == null) return;
+    if (media == null) {
+      debugPrint('❌ No media selected, cancelling flow');
+      return;
+    }
+
+    debugPrint('📸 Media selected: ${media.path}');
 
     // Immediately use live location; no pointer mode
     setState(() {
@@ -1218,25 +1773,43 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
+      debugPrint('📍 Checking location services...');
+
       // Get current location and upload the report using it
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
+        debugPrint('❌ Location services are disabled');
         throw Exception('Location services are disabled');
       }
+      debugPrint('✅ Location services enabled');
+
       LocationPermission permission = await Geolocator.checkPermission();
+      debugPrint('📍 Current permission: $permission');
+
       if (permission == LocationPermission.denied) {
+        debugPrint('🔑 Requesting location permission...');
         permission = await Geolocator.requestPermission();
+        debugPrint('📍 Permission after request: $permission');
       }
+
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        debugPrint('❌ Location permission denied: $permission');
         throw Exception('Location permission denied');
       }
+
+      debugPrint('🌍 Getting current position...');
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
       );
+      debugPrint('📍 Position acquired: ${pos.latitude}, ${pos.longitude}');
+
       final here = latLng2.LatLng(pos.latitude, pos.longitude);
+      debugPrint('🚀 Starting upload process...');
       await _uploadMediaAndReport(here);
+      debugPrint('🎉 Disaster report flow completed successfully');
     } catch (e) {
+      debugPrint('❌ Error in disaster report flow: $e');
       _showGenericError(e);
     }
   }
@@ -1321,14 +1894,14 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(120),
+        preferredSize: const Size.fromHeight(156),
         child: Container(
           decoration: const BoxDecoration(
             color: Color(0xFF1E2328), // Same simple dark color
             borderRadius: BorderRadius.vertical(bottom: Radius.circular(35)),
           ),
           padding:
-              const EdgeInsets.only(top: 25, left: 24, right: 24, bottom: 20),
+              const EdgeInsets.only(top: 45, left: 24, right: 24, bottom: 20),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -1387,6 +1960,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               _notificationBell(context),
+              // Debug: Add test storage button
+              IconButton(
+                icon: const Icon(Icons.bug_report,
+                    color: Colors.orange, size: 22),
+                onPressed: _testStorageConnectivity,
+                tooltip: 'Test Storage',
+              ),
               IconButton(
                 icon: const Icon(Icons.logout,
                     color: Color(0xFFFA7070), size: 26),

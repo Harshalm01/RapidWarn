@@ -334,7 +334,8 @@ class _UserManagementPageState extends State<UserManagementPage> {
   void initState() {
     super.initState();
     _initializeOfflineSupport();
-    _createTestUser(); // Add a test user to verify the system works
+    // Removed automatic user creation - only manual creation via buttons now
+    _syncFirebaseAuthUsers(); // Sync existing Firebase Auth users to Firestore
     _setupRealtimeListener();
     _checkConnectivity();
   }
@@ -398,6 +399,18 @@ class _UserManagementPageState extends State<UserManagementPage> {
     } catch (e) {
       print('❌ Error handling user updates: $e');
     }
+  }
+
+  // Show snackbar helper method
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 3),
+      ),
+    );
   }
 
   // Save users to local cache
@@ -493,6 +506,233 @@ class _UserManagementPageState extends State<UserManagementPage> {
     }
   }
 
+  // Force create multiple demo users for immediate admin dashboard population
+  Future<void> _forceCreateDemoUsers() async {
+    try {
+      print('🚀 CHECKING AND CREATING DEMO USERS...');
+
+      // Check if demo users already exist
+      final existingUsers = await FirebaseFirestore.instance
+          .collection('users')
+          .where('email', whereIn: [
+        'john.doe@example.com',
+        'jane.smith@example.com',
+        'admin.user@rapidwarn.com',
+        'mike.wilson@example.com',
+        'sarah.johnson@example.com'
+      ]).get();
+
+      if (existingUsers.docs.isNotEmpty) {
+        print(
+            '⚠️  Demo users already exist. Found ${existingUsers.docs.length} existing demo users.');
+        _showSnackBar(
+            'Demo users already exist! Found ${existingUsers.docs.length} users.');
+        return;
+      }
+
+      List<Map<String, dynamic>> demoUsers = [
+        {
+          'email': 'john.doe@example.com',
+          'displayName': 'John Doe',
+          'role': 'user',
+          'phoneNumber': '+1234567890'
+        },
+        {
+          'email': 'jane.smith@example.com',
+          'displayName': 'Jane Smith',
+          'role': 'moderator',
+          'phoneNumber': '+1987654321'
+        },
+        {
+          'email': 'admin.user@rapidwarn.com',
+          'displayName': 'Admin User',
+          'role': 'admin',
+          'phoneNumber': '+1555000111'
+        },
+        {
+          'email': 'mike.wilson@example.com',
+          'displayName': 'Mike Wilson',
+          'role': 'user',
+          'phoneNumber': '+1777888999'
+        },
+        {
+          'email': 'sarah.johnson@example.com',
+          'displayName': 'Sarah Johnson',
+          'role': 'user',
+          'phoneNumber': '+1666555444'
+        }
+      ];
+
+      for (int i = 0; i < demoUsers.length; i++) {
+        var userData = demoUsers[i];
+        String userId =
+            'demo_user_${i + 1}_${DateTime.now().millisecondsSinceEpoch}';
+
+        await FirebaseFirestore.instance.collection('users').doc(userId).set({
+          'uid': userId,
+          'email': userData['email'],
+          'displayName': userData['displayName'],
+          'role': userData['role'],
+          'phoneNumber': userData['phoneNumber'],
+          'createdAt': FieldValue.serverTimestamp(),
+          'lastLoginAt': FieldValue.serverTimestamp(),
+          'isActive': true,
+          'emailVerified': true,
+          'profileImageUrl': null,
+          'preferences': {
+            'notifications': true,
+            'darkMode': false,
+            'language': 'en'
+          }
+        });
+
+        print(
+            '✅ Created demo user: ${userData['displayName']} (${userData['email']})');
+      }
+
+      print('🎉 Successfully created ${demoUsers.length} demo users!');
+
+      // Force refresh the users list
+      await _forceRefresh();
+    } catch (e) {
+      print('❌ Failed to create demo users: $e');
+    }
+  }
+
+  // Clear demo users from Firestore
+  Future<void> _clearDemoUsers() async {
+    try {
+      print('🗑️ CLEARING DEMO USERS...');
+
+      final demoUserEmails = [
+        'john.doe@example.com',
+        'jane.smith@example.com',
+        'admin.user@rapidwarn.com',
+        'mike.wilson@example.com',
+        'sarah.johnson@example.com',
+        'testuser@rapidwarn.com' // Include the test user too
+      ];
+
+      final existingUsers = await FirebaseFirestore.instance
+          .collection('users')
+          .where('email', whereIn: demoUserEmails)
+          .get();
+
+      if (existingUsers.docs.isEmpty) {
+        _showSnackBar('No demo users found to delete.');
+        return;
+      }
+
+      // Delete all demo users
+      final batch = FirebaseFirestore.instance.batch();
+      for (var doc in existingUsers.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+
+      print('✅ Deleted ${existingUsers.docs.length} demo users');
+      _showSnackBar(
+          'Successfully deleted ${existingUsers.docs.length} demo users!');
+
+      // Force refresh the users list
+      await _forceRefresh();
+    } catch (e) {
+      print('❌ Failed to clear demo users: $e');
+      _showSnackBar('Failed to clear demo users: $e', isError: true);
+    }
+  }
+
+  // Sync existing Firebase Auth users to Firestore for admin dashboard
+  Future<void> _syncFirebaseAuthUsers() async {
+    try {
+      print('🔄 Syncing Firebase Auth users to Firestore...');
+
+      // Get current Firebase Auth user
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        print('Found current user: ${currentUser.email} (${currentUser.uid})');
+
+        // Check if user document exists in Firestore
+        final userDoc = await usersRef.doc(currentUser.uid).get();
+        if (!userDoc.exists) {
+          // Create user document in Firestore
+          await usersRef.doc(currentUser.uid).set({
+            'uid': currentUser.uid,
+            'email': currentUser.email ?? 'unknown@example.com',
+            'displayName': currentUser.displayName ?? 'User',
+            'created_at': FieldValue.serverTimestamp(),
+            'last_login': FieldValue.serverTimestamp(),
+            'status': 'active',
+            'role': 'user',
+            'phone': currentUser.phoneNumber,
+            'profile_image': currentUser.photoURL,
+            'email_verified': currentUser.emailVerified,
+          });
+          print('✅ Synced user ${currentUser.email} to Firestore');
+        } else {
+          // Update last login time
+          await usersRef.doc(currentUser.uid).update({
+            'last_login': FieldValue.serverTimestamp(),
+            'email_verified': currentUser.emailVerified,
+          });
+          print('✅ Updated existing user ${currentUser.email} in Firestore');
+        }
+      }
+
+      // Also check Supabase for any users that might not be in Firestore
+      final supabase = Supabase.instance.client;
+      try {
+        final supabaseUsers = await supabase
+            .from('users')
+            .select('firebase_uid, email, created_at')
+            .limit(50);
+
+        print('Found ${supabaseUsers.length} users in Supabase');
+
+        for (final supabaseUser in supabaseUsers) {
+          final firebaseUid = supabaseUser['firebase_uid'] as String?;
+          final email = supabaseUser['email'] as String?;
+
+          if (firebaseUid != null && email != null) {
+            final firestoreDoc = await usersRef.doc(firebaseUid).get();
+            if (!firestoreDoc.exists) {
+              await usersRef.doc(firebaseUid).set({
+                'uid': firebaseUid,
+                'email': email,
+                'displayName':
+                    email.split('@')[0], // Use email prefix as display name
+                'created_at': FieldValue.serverTimestamp(),
+                'last_login': FieldValue.serverTimestamp(),
+                'status': 'active',
+                'role': 'user',
+                'phone': null,
+                'profile_image': null,
+                'email_verified': true,
+                'synced_from': 'supabase',
+              });
+              print('✅ Synced user $email from Supabase to Firestore');
+            }
+          }
+        }
+      } catch (supabaseError) {
+        final errorMessage = supabaseError.toString();
+        if (errorMessage.contains('relation "public.users" does not exist')) {
+          print(
+              '⚠️ Supabase users table does not exist yet. Please run the migration:');
+          print('   1. Navigate to your Supabase project dashboard');
+          print('   2. Go to SQL Editor');
+          print(
+              '   3. Run the migration from supabase/migrations/001_create_users_table.sql');
+          print('   Or use Supabase CLI: supabase db push');
+        } else {
+          print('⚠️ Supabase sync error (continuing): $supabaseError');
+        }
+      }
+    } catch (e) {
+      print('❌ Failed to sync Firebase Auth users: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -566,9 +806,25 @@ class _UserManagementPageState extends State<UserManagementPage> {
           ),
           const SizedBox(width: 8),
           IconButton(
+            icon: const Icon(Icons.sync),
+            onPressed: _syncFirebaseAuthUsers,
+            tooltip: 'Sync Firebase Auth users',
+            color: Colors.blue,
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _forceRefresh,
             tooltip: 'Force refresh',
+          ),
+          IconButton(
+            icon: const Icon(Icons.people_alt, color: Colors.green),
+            onPressed: _forceCreateDemoUsers,
+            tooltip: 'Create 5 Demo Users',
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_sweep, color: Colors.red),
+            onPressed: _clearDemoUsers,
+            tooltip: 'Clear All Demo Users',
           ),
         ],
       ),
