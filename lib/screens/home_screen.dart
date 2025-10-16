@@ -211,6 +211,22 @@ class DisasterDetailsDialog extends StatelessWidget {
         iconData = Icons.local_fire_department;
         iconColor = Colors.red;
         break;
+      case 'flood':
+        iconData = Icons.water;
+        iconColor = Colors.blue;
+        break;
+      case 'earthquake':
+        iconData = Icons.terrain;
+        iconColor = Colors.brown;
+        break;
+      case 'landslide':
+        iconData = Icons.landscape;
+        iconColor = Colors.orange;
+        break;
+      case 'storm':
+        iconData = Icons.thunderstorm;
+        iconColor = Colors.purple;
+        break;
       case 'accident':
         iconData = Icons.car_crash;
         iconColor = Colors.orange;
@@ -1298,9 +1314,9 @@ class _HomeScreenState extends State<HomeScreen> {
         notificationHistory.insert(
           0,
           AppNotification(
-            title: "🚨 Disaster Classified",
+            title: "🤖 AI Classification Complete",
             body:
-                "A $disasterType has been detected at your location based on your uploaded media.",
+                "Your uploaded media has been classified as: $disasterType. Nearby users have been notified.",
             timestamp: DateTime.now(),
           ),
         );
@@ -1335,9 +1351,10 @@ class _HomeScreenState extends State<HomeScreen> {
           print('DEBUG: Showing snackbar notification...');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content:
-                  Text('🚨 $disasterType detected! System notification sent.'),
-              backgroundColor: Colors.red,
+              content: Text(
+                  '🤖 AI classified your upload as: $disasterType! Map marker updated.'),
+              backgroundColor:
+                  Colors.green, // Success color for AI classification
               duration: const Duration(seconds: 5),
               action: SnackBarAction(
                 label: 'VIEW',
@@ -1557,19 +1574,20 @@ class _HomeScreenState extends State<HomeScreen> {
         AppNotification(
           title: "Report Submitted",
           body:
-              "Your media was uploaded. We'll notify you once it's classified.",
+              "Your media has been uploaded successfully to both storage and database.",
           timestamp: DateTime.now(),
         ),
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Report submitted successfully')),
+          const SnackBar(
+              content: Text(
+                  'Report submitted successfully! Media saved to bucket and insights table.')),
         );
-        // After success, show the marker at the same position and center the map
+        // Center the map on upload location
         final state = _mapKey.currentState;
         if (state != null) {
-          state.addDisasterMarker(latLng, _pendingDisasterType);
           state.moveTo(latLng, 15);
         }
       }
@@ -1625,7 +1643,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final currentUser = fb_auth.FirebaseAuth.instance.currentUser;
     debugPrint('👤 Current user ID: ${currentUser?.uid}');
 
-    // Use Firebase Firestore instead of Supabase for insights
+    // Prepare data for both databases
     final insertData = {
       'media_url': mediaUrl,
       'latitude': latitude,
@@ -1633,14 +1651,32 @@ class _HomeScreenState extends State<HomeScreen> {
       'processed': false,
       'created_at': FieldValue.serverTimestamp(),
       'uploader_id': currentUser?.uid,
-      'disaster_type': null, // Will be set by ML classification
+      'disaster_type': null, // Can be manually set later
     };
 
     debugPrint('📦 Insert data: $insertData');
 
-    // Insert into Firebase Firestore instead of Supabase
-    await FirebaseFirestore.instance.collection('insights').add(insertData);
-    debugPrint('✅ Database insert completed successfully in Firebase');
+    try {
+      // 1. Insert into Firebase Firestore
+      await FirebaseFirestore.instance.collection('insights').add(insertData);
+      debugPrint('✅ Firebase insert completed successfully');
+
+      // 2. Insert into Supabase insights table
+      await supabase.from('insights').insert({
+        'media_url': mediaUrl,
+        'latitude': latitude,
+        'longitude': longitude,
+        'processed': false,
+        'uploader_id': currentUser?.uid,
+        'disaster_type': null,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      debugPrint('✅ Supabase insert completed successfully');
+    } catch (e) {
+      debugPrint('❌ Database insert error: $e');
+      // Re-throw to handle in calling function
+      rethrow;
+    }
   }
 
   // Removed: _chooseDisasterTypeDialog; ML will predict disaster type.
@@ -1694,62 +1730,63 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _testStorageConnectivity() async {
-    debugPrint('🧪 Testing Supabase storage connectivity...');
+  Future<void> _testDatabaseConnectivity() async {
+    debugPrint('� Testing database connectivity...');
 
     try {
-      // Test 1: Check if we can list buckets
-      debugPrint('🔍 Testing bucket access...');
+      final currentUser = fb_auth.FirebaseAuth.instance.currentUser;
+      debugPrint('👤 Current user: ${currentUser?.uid ?? 'null'}');
+      debugPrint('📧 User email: ${currentUser?.email ?? 'null'}');
 
-      // Test 2: Try a simple operation (list files in media bucket)
-      debugPrint('📂 Listing files in media bucket...');
+      // Test Firebase Firestore connection
+      debugPrint('🔍 Testing Firebase connection...');
+      final testDoc = await FirebaseFirestore.instance
+          .collection('insights')
+          .limit(1)
+          .get();
+      debugPrint(
+          '✅ Firebase accessible, found ${testDoc.docs.length} documents');
+
+      // Test Supabase storage connection
+      debugPrint('📂 Testing Supabase storage...');
       final response = await supabase.storage.from('media').list();
-      debugPrint('✅ Storage accessible, found ${response.length} files');
+      debugPrint(
+          '✅ Supabase storage accessible, found ${response.length} files');
 
-      // Test 3: Check user authentication
-      final user = fb_auth.FirebaseAuth.instance.currentUser;
-      debugPrint('👤 Current user: ${user?.uid ?? 'null'}');
-      debugPrint('📧 User email: ${user?.email ?? 'null'}');
-
-      // Test 4: Check insights table structure
-      debugPrint('🔍 Testing insights table access...');
+      // Test Supabase insights table
+      debugPrint('🗃️ Testing Supabase insights table...');
       try {
-        final insightsTest = await supabase.from('insights').select().limit(1);
-        debugPrint('✅ Insights table accessible, sample data: $insightsTest');
-      } catch (e) {
-        debugPrint('❌ Insights table error: $e');
-        // Try to create a minimal entry to see what columns are expected
-        try {
-          await supabase.from('insights').insert({
-            'media_url': 'test_url',
-            'latitude': 0.0,
-            'longitude': 0.0,
-          });
-          debugPrint('✅ Basic insights insert works');
-        } catch (insertError) {
-          debugPrint('❌ Basic insights insert failed: $insertError');
-        }
+        final tableResponse =
+            await supabase.from('insights').select('id').limit(1);
+        debugPrint(
+            '✅ Supabase insights table accessible, found ${tableResponse.length} records');
+      } catch (tableError) {
+        debugPrint('❌ Supabase insights table error: $tableError');
+        debugPrint(
+            '💡 You need to create the insights table in Supabase SQL editor');
+        debugPrint('📝 See supabase/migrations/004_create_insights_table.sql');
       }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content:
-                  Text('Storage test passed! Found ${response.length} files')),
+            content: Text(
+                'Database test passed! Firebase: ${testDoc.docs.length} docs, Storage: ${response.length} files'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
-    } on StorageException catch (e) {
-      debugPrint('❌ Storage test failed: ${e.message}');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Storage test failed: ${e.message}')),
-        );
-      }
+
+      debugPrint('✅ Database connectivity test completed successfully');
     } catch (e) {
-      debugPrint('❌ Storage test error: $e');
+      debugPrint('❌ Database test failed: $e');
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Storage test error: $e')),
+          SnackBar(
+            content: Text('Database test failed: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -1894,85 +1931,89 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(156),
+        preferredSize: const Size.fromHeight(180),
         child: Container(
           decoration: const BoxDecoration(
             color: Color(0xFF1E2328), // Same simple dark color
             borderRadius: BorderRadius.vertical(bottom: Radius.circular(35)),
           ),
-          padding:
-              const EdgeInsets.only(top: 45, left: 24, right: 24, bottom: 20),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.3),
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.white.withOpacity(0.2),
-                      spreadRadius: 0,
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: CircleAvatar(
-                  radius: 26,
-                  backgroundImage: user?.photoURL != null
-                      ? NetworkImage(user!.photoURL!)
-                      : null,
-                  backgroundColor: Colors.white.withOpacity(0.9),
-                  child: user?.photoURL == null
-                      ? const Icon(Icons.person, color: Colors.grey, size: 30)
-                      : null,
-                ),
-              ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      "Hello, ${user?.displayName ?? 'User'} 👋",
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20,
-                        letterSpacing: 0.2,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.3),
+                        width: 2,
                       ),
-                    ),
-                    if (user?.email != null)
-                      Text(
-                        user!.email!,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w400,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.white.withOpacity(0.2),
+                          spreadRadius: 0,
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
                         ),
-                      ),
-                  ],
-                ),
+                      ],
+                    ),
+                    child: CircleAvatar(
+                      radius: 26,
+                      backgroundImage: user?.photoURL != null
+                          ? NetworkImage(user!.photoURL!)
+                          : null,
+                      backgroundColor: Colors.white.withOpacity(0.9),
+                      child: user?.photoURL == null
+                          ? const Icon(Icons.person,
+                              color: Colors.grey, size: 30)
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          "Hello, ${user?.displayName ?? 'User'} 👋",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        if (user?.email != null)
+                          Text(
+                            user!.email!,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  _notificationBell(context),
+                  // Debug: Add database test button
+                  IconButton(
+                    icon:
+                        const Icon(Icons.storage, color: Colors.blue, size: 22),
+                    onPressed: _testDatabaseConnectivity,
+                    tooltip: 'Test Database',
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.logout,
+                        color: Color(0xFFFA7070), size: 26),
+                    onPressed: _logout,
+                  ),
+                ],
               ),
-              _notificationBell(context),
-              // Debug: Add test storage button
-              IconButton(
-                icon: const Icon(Icons.bug_report,
-                    color: Colors.orange, size: 22),
-                onPressed: _testStorageConnectivity,
-                tooltip: 'Test Storage',
-              ),
-              IconButton(
-                icon: const Icon(Icons.logout,
-                    color: Color(0xFFFA7070), size: 26),
-                onPressed: _logout,
-              ),
-            ],
+            ),
           ),
         ),
       ),
