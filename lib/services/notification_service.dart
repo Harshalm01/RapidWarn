@@ -492,11 +492,13 @@ class NotificationService {
         'longitude': longitude,
         'location': location,
         'media_url': mediaUrl,
+        'photo_url': mediaUrl, // Add both for compatibility
         'uploader_id': uploaderId,
         'timestamp': FieldValue.serverTimestamp(),
         'source': 'ML_classification',
         'status': 'active',
         'severity': 'high',
+        'intensity': 'high', // Add for compatibility
         'notified_users': [],
         'alert_radius': 5000, // 5km radius
       });

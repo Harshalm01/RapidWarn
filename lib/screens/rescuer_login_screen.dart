@@ -1,44 +1,192 @@
-// lib/screens/admin_login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'admin_dashboard_screen.dart';
+import 'rescuer_dashboard_screen.dart';
 
-class AdminLoginScreen extends StatefulWidget {
-  const AdminLoginScreen({Key? key}) : super(key: key);
+class RescuerLoginScreen extends StatefulWidget {
+  const RescuerLoginScreen({Key? key}) : super(key: key);
 
   @override
-  State<AdminLoginScreen> createState() => _AdminLoginScreenState();
+  State<RescuerLoginScreen> createState() => _RescuerLoginScreenState();
 }
 
-class _AdminLoginScreenState extends State<AdminLoginScreen> {
+class _RescuerLoginScreenState extends State<RescuerLoginScreen> {
   final _phoneController = TextEditingController();
   final _otpController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
   bool _showOtpField = false;
 
-  // Predefined admin data
-  final Map<String, Map<String, dynamic>> _adminPhones = {
-    '+1234567890': {
-      'name': 'Super Admin',
-      'role': 'super_admin',
-      'predefinedOTP': '123456',
+  // Predefined rescuer data
+  final Map<String, Map<String, dynamic>> _rescuerPhones = {
+    '+1234567891': {
+      'name': 'Rescue Team Alpha',
+      'email': 'alpha@rescueteam.com',
+      'role': 'team_leader',
+      'predefinedOTP': '111111',
       'isActive': true,
     },
-    '+9876543210': {
-      'name': 'Emergency Admin',
-      'role': 'emergency_admin',
-      'predefinedOTP': '654321',
+    '+9876543211': {
+      'name': 'Rescue Team Beta',
+      'email': 'beta@rescueteam.com',
+      'role': 'rescuer',
+      'predefinedOTP': '222222',
       'isActive': true,
     },
-    '+919324476116': {
-      'name': 'Test Admin',
-      'role': 'test_admin',
-      'predefinedOTP': '011107',
+    '+919324476117': {
+      'name': 'Test Rescuer',
+      'email': 'test@rescueteam.com',
+      'role': 'rescuer',
+      'predefinedOTP': '999999',
       'isActive': true,
     },
   };
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    _otpController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      String phoneInput =
+          _phoneController.text.replaceAll(' ', '').replaceAll('-', '');
+      String? fullPhone;
+
+      // Check if input matches any predefined rescuer number
+      for (String rescuerPhone in _rescuerPhones.keys) {
+        // Remove +91, +1, etc. to get base number
+        String baseRescuerNumber = rescuerPhone
+            .replaceAll('+91', '')
+            .replaceAll('+1', '')
+            .replaceAll('+', '');
+
+        // Check multiple input formats for this rescuer number
+        if (phoneInput == rescuerPhone || // Full format: +919324476117
+            phoneInput ==
+                rescuerPhone.replaceAll('+', '') || // Without +: 919324476117
+            phoneInput == baseRescuerNumber) {
+          // Base number: 9324476117
+          fullPhone = rescuerPhone; // Use the exact predefined format
+          break;
+        }
+      }
+
+      // If no match found, reject immediately
+      if (fullPhone == null) {
+        _showSnackBar(
+            'Unauthorized phone number. Only registered rescue team members allowed.',
+            Colors.red);
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      if (!_showOtpField) {
+        // Step 1: Verify phone number exists in rescuer list
+        if (_rescuerPhones.containsKey(fullPhone)) {
+          setState(() {
+            _showOtpField = true;
+            _isLoading = false;
+          });
+          _showSnackBar('OTP sent! Use the predefined OTP.', Colors.green);
+        } else {
+          _showSnackBar('Unauthorized phone number', Colors.red);
+          setState(() => _isLoading = false);
+        }
+      } else {
+        // Step 2: Verify OTP
+        final rescuerData = _rescuerPhones[fullPhone]!;
+        if (_otpController.text == rescuerData['predefinedOTP']) {
+          // Store rescuer session
+          await _storeRescuerSession(fullPhone, rescuerData);
+
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => RescuerDashboardScreen(
+                  rescuerEmail: rescuerData['email'],
+                ),
+              ),
+            );
+          }
+        } else {
+          _showSnackBar('Invalid OTP', Colors.red);
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      _showSnackBar('Login failed: $e', Colors.red);
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _storeRescuerSession(
+      String phone, Map<String, dynamic> rescuerData) async {
+    try {
+      // Store in SharedPreferences for persistent login
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('rescuer_logged_in', true);
+      await prefs.setString('rescuer_phone', phone);
+      await prefs.setString('rescuer_name', rescuerData['name']);
+      await prefs.setString('rescuer_email', rescuerData['email']);
+      await prefs.setString('rescuer_role', rescuerData['role']);
+      await prefs.setInt(
+          'rescuer_login_time', DateTime.now().millisecondsSinceEpoch);
+
+      print('✅ Rescuer session saved to SharedPreferences: $phone');
+
+      // Store in Firestore for session management
+      await FirebaseFirestore.instance
+          .collection('rescuer_sessions')
+          .doc(phone)
+          .set({
+        'phone': phone,
+        'name': rescuerData['name'],
+        'email': rescuerData['email'],
+        'role': rescuerData['role'],
+        'loginTime': FieldValue.serverTimestamp(),
+        'isActive': true,
+      });
+
+      print('✅ Rescuer session saved to Firestore: $phone');
+    } catch (e) {
+      print('❌ Failed to store rescuer session: $e');
+    }
+  }
+
+  // Static method to clear rescuer session (can be called from anywhere)
+  static Future<void> clearRescuerSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('rescuer_logged_in');
+      await prefs.remove('rescuer_phone');
+      await prefs.remove('rescuer_name');
+      await prefs.remove('rescuer_email');
+      await prefs.remove('rescuer_role');
+      await prefs.remove('rescuer_login_time');
+
+      print('✅ Rescuer session cleared from SharedPreferences');
+    } catch (e) {
+      print('❌ Failed to clear rescuer session: $e');
+    }
+  }
+
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,12 +201,14 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Admin Login Header
+                  const SizedBox(height: 40),
+
+                  // Rescuer Login Header
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF5E35B1), Color(0xFF7E57C2), Color(0xFF9575CD)],
+                        colors: [Color(0xFF16A085), Color(0xFF2ECC71)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -67,13 +217,13 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                     child: Column(
                       children: [
                         const Icon(
-                          Icons.admin_panel_settings,
+                          Icons.health_and_safety,
                           size: 60,
                           color: Colors.white,
                         ),
                         const SizedBox(height: 10),
                         const Text(
-                          'Admin Access',
+                          'Rescuer Login',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 24,
@@ -82,7 +232,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          'RapidWarn Admin Dashboard',
+                          'Emergency Response Team Access',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.9),
                             fontSize: 16,
@@ -102,7 +252,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                     decoration: InputDecoration(
                       labelText: 'Phone Number',
                       labelStyle: const TextStyle(color: Colors.white70),
-                      hintText: 'Admin phone number',
+                      hintText: 'Rescuer phone number',
                       hintStyle:
                           TextStyle(color: Colors.white.withOpacity(0.5)),
                       border: OutlineInputBorder(
@@ -115,7 +265,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Color(0xFF9575CD)),
+                        borderSide: const BorderSide(color: Color(0xFF16A085)),
                       ),
                       filled: true,
                       fillColor: const Color(0xFF1B2028),
@@ -130,23 +280,23 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                           value.replaceAll(' ', '').replaceAll('-', '');
                       String? matchedPhone;
 
-                      // Check if input matches any predefined admin number
-                      for (String adminPhone in _adminPhones.keys) {
+                      // Check if input matches any predefined rescuer number
+                      for (String rescuerPhone in _rescuerPhones.keys) {
                         // Remove country codes to get base number
-                        String baseAdminNumber = adminPhone
+                        String baseRescuerNumber = rescuerPhone
                             .replaceAll('+91', '')
                             .replaceAll('+1', '')
                             .replaceAll('+', '');
 
-                        // Check multiple input formats for this admin number
+                        // Check multiple input formats for this rescuer number
                         if (phoneInput ==
-                                adminPhone || // Full format: +91932476116
+                                rescuerPhone || // Full format: +919324476117
                             phoneInput ==
-                                adminPhone.replaceAll(
-                                    '+', '') || // Without +: 91932476116
-                            phoneInput == baseAdminNumber) {
-                          // Base number: 932476116
-                          matchedPhone = adminPhone;
+                                rescuerPhone.replaceAll(
+                                    '+', '') || // Without +: 919324476117
+                            phoneInput == baseRescuerNumber) {
+                          // Base number: 9324476117
+                          matchedPhone = rescuerPhone;
                           break;
                         }
                       }
@@ -180,7 +330,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide:
-                              const BorderSide(color: Color(0xFF9575CD)),
+                              const BorderSide(color: Color(0xFF16A085)),
                         ),
                         filled: true,
                         fillColor: const Color(0xFF1B2028),
@@ -202,7 +352,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _handleLogin,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF9575CD),
+                        backgroundColor: const Color(0xFF16A085),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -228,7 +378,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                     child: const Text(
                       'Back to User Login',
                       style: TextStyle(
-                        color: Color(0xFF9575CD),
+                        color: Color(0xFF16A085),
                         fontSize: 16,
                       ),
                     ),
@@ -240,148 +390,6 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         ),
       ),
     );
-  }
 
-  Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      String phoneInput =
-          _phoneController.text.replaceAll(' ', '').replaceAll('-', '');
-      String? fullPhone;
-
-      // Strict validation - only allow predefined admin numbers
-      // Check if input matches any predefined admin number (with flexible formatting)
-
-      for (String adminPhone in _adminPhones.keys) {
-        // Remove +91, +1, etc. to get base number
-        String baseAdminNumber = adminPhone
-            .replaceAll('+91', '')
-            .replaceAll('+1', '')
-            .replaceAll('+', '');
-
-        // Check multiple input formats for this admin number
-        if (phoneInput == adminPhone || // Full format: +91932476116
-            phoneInput ==
-                adminPhone.replaceAll('+', '') || // Without +: 91932476116
-            phoneInput == baseAdminNumber) {
-          // Base number: 932476116
-          fullPhone = adminPhone; // Use the exact predefined format
-          break;
-        }
-      }
-
-      // If no match found, reject immediately
-      if (fullPhone == null) {
-        _showSnackBar(
-            'Unauthorized phone number. Only predefined admin numbers allowed.',
-            Colors.red);
-        setState(() => _isLoading = false);
-        return;
-      }
-
-      if (!_showOtpField) {
-        // Step 1: Verify phone number exists in admin list
-        if (_adminPhones.containsKey(fullPhone)) {
-          setState(() {
-            _showOtpField = true;
-            _isLoading = false;
-          });
-          _showSnackBar('OTP sent! Use the predefined OTP.', Colors.green);
-        } else {
-          _showSnackBar('Unauthorized phone number', Colors.red);
-          setState(() => _isLoading = false);
-        }
-      } else {
-        // Step 2: Verify OTP
-        final adminData = _adminPhones[fullPhone]!;
-        if (_otpController.text == adminData['predefinedOTP']) {
-          // Store admin session
-          await _storeAdminSession(fullPhone, adminData);
-
-          if (mounted) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const AdminDashboardScreen(),
-              ),
-            );
-          }
-        } else {
-          _showSnackBar('Invalid OTP', Colors.red);
-          setState(() => _isLoading = false);
-        }
-      }
-    } catch (e) {
-      _showSnackBar('Login failed: $e', Colors.red);
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _storeAdminSession(
-      String phone, Map<String, dynamic> adminData) async {
-    try {
-      // Store in SharedPreferences for persistent login
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('admin_logged_in', true);
-      await prefs.setString('admin_phone', phone);
-      await prefs.setString('admin_name', adminData['name']);
-      await prefs.setString('admin_role', adminData['role']);
-      await prefs.setInt(
-          'admin_login_time', DateTime.now().millisecondsSinceEpoch);
-
-      print('✅ Admin session saved to SharedPreferences: $phone');
-
-      // Store in Firestore for session management
-      await FirebaseFirestore.instance
-          .collection('admin_sessions')
-          .doc(phone)
-          .set({
-        'phone': phone,
-        'name': adminData['name'],
-        'role': adminData['role'],
-        'loginTime': FieldValue.serverTimestamp(),
-        'isActive': true,
-      });
-
-      print('✅ Admin session saved to Firestore: $phone');
-    } catch (e) {
-      print('❌ Failed to store admin session: $e');
-    }
-  }
-
-  // Static method to clear admin session (can be called from anywhere)
-  static Future<void> clearAdminSession() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('admin_logged_in');
-      await prefs.remove('admin_phone');
-      await prefs.remove('admin_name');
-      await prefs.remove('admin_role');
-      await prefs.remove('admin_login_time');
-
-      print('✅ Admin session cleared from SharedPreferences');
-    } catch (e) {
-      print('❌ Failed to clear admin session: $e');
-    }
-  }
-
-  void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: color,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _phoneController.dispose();
-    _otpController.dispose();
-    super.dispose();
   }
 }

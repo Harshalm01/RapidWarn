@@ -7,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'analytics_screen.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart' as latLng2;
+import 'package:geolocator/geolocator.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({Key? key}) : super(key: key);
@@ -47,7 +50,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   final List<Widget> _pages = [
     const UserManagementPage(),
-    const ContentModerationPage(),
+    const AdminMapPage(),
     const AnalyticsScreen(), // Moved from index 3 to index 2 (Analytics tab)
     const ReportsPage(), // Moved from index 2 to index 3 (Alerts tab)
     const NotificationsPage(),
@@ -59,7 +62,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       return Scaffold(
         appBar: AppBar(
           title: const Text("Admin Dashboard"),
-          backgroundColor: Colors.teal,
+          backgroundColor: const Color(0xFF5E35B1),
         ),
         body: const Center(
           child: Column(
@@ -83,9 +86,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Color(0xFF1A237E), // Deep blue
-                Color(0xFF3F51B5), // Indigo
-                Color(0xFF009688), // Teal
+                Color(0xFF5E35B1), // Deep purple
+                Color(0xFF7E57C2), // Medium purple
+                Color(0xFF9575CD), // Light purple
               ],
             ),
             boxShadow: [
@@ -252,9 +255,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Color(0xFF1A237E), // Deep blue
-              Color(0xFF3F51B5), // Indigo
-              Color(0xFF009688), // Teal
+              Color(0xFF5E35B1), // Deep purple
+              Color(0xFF7E57C2), // Medium purple
+              Color(0xFF9575CD), // Light purple
             ],
           ),
           boxShadow: [
@@ -291,9 +294,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 label: "Users",
               ),
               BottomNavigationBarItem(
-                icon: Icon(Icons.article_outlined),
-                activeIcon: Icon(Icons.article),
-                label: "Content",
+                icon: Icon(Icons.map_outlined),
+                activeIcon: Icon(Icons.map),
+                label: "Map",
               ),
               BottomNavigationBarItem(
                 icon: Icon(Icons.analytics_outlined),
@@ -303,7 +306,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               BottomNavigationBarItem(
                 icon: Icon(Icons.notifications_outlined),
                 activeIcon: Icon(Icons.notifications),
-                label: "Alerts",
+                label: "Status",
               ),
             ],
           ),
@@ -1205,6 +1208,304 @@ class _UserManagementPageState extends State<UserManagementPage> {
 }
 
 //
+// ---------------- Admin Map Page ----------------
+//
+class AdminMapPage extends StatefulWidget {
+  const AdminMapPage({Key? key}) : super(key: key);
+
+  @override
+  State<AdminMapPage> createState() => _AdminMapPageState();
+}
+
+class _AdminMapPageState extends State<AdminMapPage> {
+  final MapController _mapController = MapController();
+  Marker? _currentLocationMarker;
+  final List<Marker> _disasterMarkers = [];
+  bool _locating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _determinePositionAndMove();
+    _loadDisasterAlerts();
+  }
+
+  Future<void> _determinePositionAndMove() async {
+    setState(() => _locating = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() => _locating = false);
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        setState(() => _locating = false);
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.best,
+      );
+      final latLng = latLng2.LatLng(pos.latitude, pos.longitude);
+      setState(() {
+        _currentLocationMarker = Marker(
+          point: latLng,
+          width: 44,
+          height: 44,
+          child: const Icon(Icons.my_location,
+              color: Colors.blue, size: 36),
+        );
+        _locating = false;
+      });
+      _mapController.move(latLng, 13.0);
+    } catch (e) {
+      setState(() => _locating = false);
+    }
+  }
+
+  Future<void> _loadDisasterAlerts() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('disaster_alerts')
+          .orderBy('timestamp', descending: true)
+          .limit(100)
+          .get();
+
+      setState(() {
+        _disasterMarkers.clear();
+        for (var doc in snapshot.docs) {
+          final data = doc.data();
+          final lat = data['latitude'] as double?;
+          final lng = data['longitude'] as double?;
+          
+          // Try multiple possible field names for disaster type
+          final type = data['type'] as String? ?? 
+                      data['disaster_type'] as String? ?? 
+                      data['disasterType'] as String? ??
+                      data['classification'] as String?;
+
+          print('🗺️ Loading marker - Type: $type, Lat: $lat, Lng: $lng');
+
+          if (lat != null && lng != null) {
+            _disasterMarkers.add(
+              Marker(
+                point: latLng2.LatLng(lat, lng),
+                width: 44,
+                height: 44,
+                child: _buildDisasterMarkerChild(type),
+              ),
+            );
+          }
+        }
+        print('✅ Loaded ${_disasterMarkers.length} disaster markers');
+      });
+    } catch (e) {
+      print('❌ Error loading disaster alerts: $e');
+    }
+  }
+
+  Widget _buildDisasterMarkerChild(String? type) {
+    if (type == null) {
+      print('⚠️ Marker has no type, using default red pin');
+      return const Icon(Icons.location_on, color: Colors.red, size: 36);
+    }
+
+    final normalizedType = type.toLowerCase().trim();
+    print('🎨 Building marker for type: "$normalizedType"');
+    
+    final iconMap = {
+      "fire": "assets/icons/fire.png",
+      "riot": "assets/icons/riot.png",
+      "accident": "assets/icons/accident.png",
+      "accidents": "assets/icons/accident.png",
+      "stampede": "assets/icons/stampede.png",
+    };
+
+    final iconPath = iconMap[normalizedType];
+    print('📍 Icon path for "$normalizedType": $iconPath');
+    
+    if (iconPath == null) {
+      // Fallback for types without custom icons
+      return Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: Colors.red,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Icon(
+          _getIconForType(normalizedType),
+          color: Colors.white,
+          size: 24,
+        ),
+      );
+    }
+
+    // Use asset image with shadow and border
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: Image.asset(
+          iconPath,
+          width: 40,
+          height: 40,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              color: Colors.red,
+              child: const Icon(Icons.emergency, color: Colors.white, size: 24),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  IconData _getIconForType(String type) {
+    switch (type) {
+      case 'fire':
+        return Icons.local_fire_department;
+      case 'accident':
+        return Icons.car_crash;
+      case 'stampede':
+        return Icons.group;
+      case 'flood':
+        return Icons.water;
+      case 'earthquake':
+        return Icons.terrain;
+      case 'riot':
+        return Icons.warning;
+      default:
+        return Icons.emergency;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: const latLng2.LatLng(19.0760, 72.8777), // Mumbai
+              initialZoom: 13.0,
+              minZoom: 5.0,
+              maxZoom: 18.0,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.rapidwarn',
+              ),
+              MarkerLayer(
+                markers: [
+                  if (_currentLocationMarker != null) _currentLocationMarker!,
+                  ..._disasterMarkers,
+                ],
+              ),
+            ],
+          ),
+          if (_locating)
+            const Center(
+              child: CircularProgressIndicator(),
+            ),
+          Positioned(
+            top: 16,
+            right: 16,
+            child: Column(
+              children: [
+                FloatingActionButton(
+                  heroTag: 'locate',
+                  mini: true,
+                  backgroundColor: Colors.white,
+                  onPressed: _determinePositionAndMove,
+                  child: const Icon(Icons.my_location, color: Colors.blue),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton(
+                  heroTag: 'refresh',
+                  mini: true,
+                  backgroundColor: Colors.white,
+                  onPressed: _loadDisasterAlerts,
+                  child: const Icon(Icons.refresh, color: Colors.blue),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            bottom: 16,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Disaster Alerts Map',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${_disasterMarkers.length} active alerts',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+//
 // ---------------- Content Moderation Page ----------------
 //
 class ContentModerationPage extends StatefulWidget {
@@ -1255,7 +1556,7 @@ class _ContentModerationPageState extends State<ContentModerationPage> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                const Icon(Icons.article, color: Colors.tealAccent, size: 28),
+                const Icon(Icons.article, color: Color(0xFFB39DDB), size: 28),
                 const SizedBox(width: 12),
                 const Text(
                   'Content Moderation',
@@ -1267,7 +1568,7 @@ class _ContentModerationPageState extends State<ContentModerationPage> {
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.tealAccent),
+                  icon: const Icon(Icons.refresh, color: Color(0xFFB39DDB)),
                   onPressed: _fetchReports,
                 ),
               ],
@@ -1278,7 +1579,7 @@ class _ContentModerationPageState extends State<ContentModerationPage> {
           Expanded(
             child: _isLoading
                 ? const Center(
-                    child: CircularProgressIndicator(color: Colors.tealAccent),
+                    child: CircularProgressIndicator(color: Color(0xFFB39DDB)),
                   )
                 : _reports.isEmpty
                     ? const Center(
@@ -1383,7 +1684,7 @@ class _ContentModerationPageState extends State<ContentModerationPage> {
                       if (loadingProgress == null) return child;
                       return const Center(
                         child:
-                            CircularProgressIndicator(color: Colors.tealAccent),
+                            CircularProgressIndicator(color: Color(0xFFB39DDB)),
                       );
                     },
                     errorBuilder: (context, error, stackTrace) {
@@ -1415,7 +1716,7 @@ class _ContentModerationPageState extends State<ContentModerationPage> {
               child: Row(
                 children: [
                   const Icon(Icons.location_on,
-                      color: Colors.tealAccent, size: 20),
+                      color: Color(0xFFB39DDB), size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1587,51 +1888,890 @@ class _ContentModerationPageState extends State<ContentModerationPage> {
 //
 // ---------------- Reports Page ----------------
 //
-class ReportsPage extends StatelessWidget {
+class ReportsPage extends StatefulWidget {
   const ReportsPage({Key? key}) : super(key: key);
+
+  @override
+  State<ReportsPage> createState() => _ReportsPageState();
+}
+
+class _ReportsPageState extends State<ReportsPage> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          color: const Color(0xFF2A2D36),
+          child: TabBar(
+            controller: _tabController,
+            indicatorColor: const Color(0xFF9575CD),
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white60,
+            tabs: const [
+              Tab(
+                icon: Icon(Icons.warning_amber_rounded),
+                text: 'Active Alerts',
+              ),
+              Tab(
+                icon: Icon(Icons.check_circle_outline),
+                text: 'Resolved',
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: const [
+              _ActiveAlertsTab(),
+              _ResolvedAlertsTab(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// Active Alerts Tab
+class _ActiveAlertsTab extends StatelessWidget {
+  const _ActiveAlertsTab({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('insights')
-          .orderBy('timestamp', descending: true)
+          .collection('disaster_alerts')
+          .where('status', isEqualTo: 'active')
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFF9575CD)),
+          );
         }
         if (snapshot.hasError) {
-          return Center(child: Text("Error: ${snapshot.error}"));
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                const SizedBox(height: 16),
+                Text(
+                  "Error loading alerts",
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    "${snapshot.error}",
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          );
         }
 
-        final reports = snapshot.data?.docs ?? [];
-        if (reports.isEmpty) {
-          return const Center(child: Text("📊 No reports found."));
+        final alerts = snapshot.data?.docs ?? [];
+        // Sort manually by timestamp (descending)
+        alerts.sort((a, b) {
+          final aTime = (a.data() as Map<String, dynamic>)['timestamp'] as Timestamp?;
+          final bTime = (b.data() as Map<String, dynamic>)['timestamp'] as Timestamp?;
+          if (aTime == null || bTime == null) return 0;
+          return bTime.compareTo(aTime);
+        });
+        if (alerts.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.check_circle, color: Colors.green[300], size: 64),
+                const SizedBox(height: 16),
+                const Text(
+                  "🎉 No Active Alerts",
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "All disasters have been resolved",
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          );
         }
 
         return ListView.builder(
-          itemCount: reports.length,
+          padding: const EdgeInsets.all(12),
+          itemCount: alerts.length,
           itemBuilder: (context, index) {
-            final report = reports[index].data() as Map<String, dynamic>;
-            final timestamp = report['timestamp'] as Timestamp?;
+            final alert = alerts[index].data() as Map<String, dynamic>;
+            final timestamp = alert['timestamp'] as Timestamp?;
             final dateStr = timestamp != null
-                ? DateFormat('MMM dd, yyyy HH:mm').format(timestamp.toDate())
+                ? DateFormat('MMM dd, yyyy • HH:mm').format(timestamp.toDate())
                 : 'Unknown';
+            final disasterType = (alert['disaster_type'] ?? 'normal').toString().toLowerCase();
+
+            // Skip "normal" disasters - only show fire, accident, stampede
+            if (disasterType == 'normal') {
+              return const SizedBox.shrink();
+            }
 
             return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: ListTile(
-                leading: const Icon(Icons.report, color: Colors.red),
-                title: Text(report['location'] ?? 'Unknown Location'),
-                subtitle: Text(
-                    'Classification: ${report['classification']}\n$dateStr'),
-                isThreeLine: true,
+              margin: const EdgeInsets.only(bottom: 12),
+              elevation: 3,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: _getDisasterColor(disasterType).withOpacity(0.3),
+                  width: 2,
+                ),
+              ),
+              child: InkWell(
+                onTap: () => _showDisasterDetails(context, alert),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _getDisasterColor(disasterType).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          _getDisasterIcon(disasterType),
+                          color: _getDisasterColor(disasterType),
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _getDisasterTitle(disasterType),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.location_on, size: 14, color: Colors.grey),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    alert['location'] ?? 'Unknown Location',
+                                    style: const TextStyle(fontSize: 13),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.access_time, size: 14, color: Colors.grey),
+                                const SizedBox(width: 4),
+                                Text(
+                                  dateStr,
+                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.pending_actions, size: 12, color: Colors.orange),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Awaiting Rescue Team',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.orange,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.grey),
+                    ],
+                  ),
+                ),
               ),
             );
           },
         );
       },
+    );
+  }
+
+  Color _getDisasterColor(String type) {
+    switch (type) {
+      case 'fire':
+        return const Color(0xFFFF4444);
+      case 'accident':
+        return const Color(0xFFFFA726);
+      case 'stampede':
+        return const Color(0xFF9C27B0);
+      default:
+        return const Color(0xFF4CAF50);
+    }
+  }
+
+  IconData _getDisasterIcon(String type) {
+    switch (type) {
+      case 'fire':
+        return Icons.local_fire_department;
+      case 'accident':
+        return Icons.car_crash;
+      case 'stampede':
+        return Icons.groups;
+      default:
+        return Icons.info_outline;
+    }
+  }
+
+  String _getDisasterTitle(String type) {
+    switch (type) {
+      case 'fire':
+        return 'Fire Emergency';
+      case 'accident':
+        return 'Accident Reported';
+      case 'stampede':
+        return 'Stampede Alert';
+      default:
+        return 'General Alert';
+    }
+  }
+
+  void _showDisasterDetails(BuildContext context, Map<String, dynamic> alert) async {
+    final timestamp = alert['timestamp'] as Timestamp?;
+    final dateStr = timestamp != null
+        ? DateFormat('MMMM dd, yyyy • HH:mm').format(timestamp.toDate())
+        : 'Unknown';
+    final disasterType = (alert['disaster_type'] ?? 'normal').toString().toLowerCase();
+    final latitude = alert['latitude'];
+    final longitude = alert['longitude'];
+    final mediaUrl = alert['media_url'] ?? alert['photo_url'];
+
+    // Show loading dialog first
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(color: Color(0xFF9575CD)),
+      ),
+    );
+
+    // Try to fetch additional data from Supabase
+    String description = 'No description available';
+    String? supabaseImageUrl;
+    
+    try {
+      final supabase = Supabase.instance.client;
+      final response = await supabase
+          .from('insights')
+          .select('description, user_description, media_url, latitude, longitude')
+          .eq('latitude', latitude)
+          .eq('longitude', longitude)
+          .limit(1)
+          .maybeSingle();
+
+      if (response != null) {
+        description = response['description'] ?? 
+                     response['user_description'] ?? 
+                     'No description available';
+        supabaseImageUrl = response['media_url'];
+      }
+    } catch (e) {
+      print('⚠️ Could not fetch from Supabase: $e');
+    }
+
+    // Close loading dialog
+    if (context.mounted) Navigator.pop(context);
+
+    // Show actual details dialog
+    if (!context.mounted) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2D36),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _getDisasterColor(disasterType).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                _getDisasterIcon(disasterType),
+                color: _getDisasterColor(disasterType),
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _getDisasterTitle(disasterType),
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDetailRow(Icons.location_on, 'Location', alert['location'] ?? 'Unknown'),
+              const SizedBox(height: 12),
+              _buildDetailRow(Icons.my_location, 'Latitude', latitude?.toString() ?? 'Unknown'),
+              const SizedBox(height: 12),
+              _buildDetailRow(Icons.my_location, 'Longitude', longitude?.toString() ?? 'Unknown'),
+              const SizedBox(height: 12),
+              _buildDetailRow(Icons.access_time, 'Reported', dateStr),
+              const SizedBox(height: 12),
+              const Text(
+                'Description:',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+              ),
+              if (supabaseImageUrl != null || mediaUrl != null) ...[
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    supabaseImageUrl ?? mediaUrl!,
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Container(
+                        height: 200,
+                        color: Colors.grey[800],
+                        child: const Center(
+                          child: CircularProgressIndicator(color: Color(0xFF9575CD)),
+                        ),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      height: 200,
+                      color: Colors.grey[800],
+                      child: const Center(
+                        child: Icon(Icons.broken_image, color: Colors.grey, size: 48),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(color: Color(0xFF9575CD))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: Colors.white70),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// Resolved Alerts Tab
+class _ResolvedAlertsTab extends StatelessWidget {
+  const _ResolvedAlertsTab({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('disaster_alerts')
+          .where('status', isEqualTo: 'resolved')
+          .limit(50)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFF9575CD)),
+          );
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                const SizedBox(height: 16),
+                Text(
+                  "Error loading resolved alerts",
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final resolvedAlerts = snapshot.data?.docs ?? [];
+        // Sort manually by resolved_at (descending)
+        resolvedAlerts.sort((a, b) {
+          final aTime = (a.data() as Map<String, dynamic>)['resolved_at'] as Timestamp?;
+          final bTime = (b.data() as Map<String, dynamic>)['resolved_at'] as Timestamp?;
+          if (aTime == null) return 1;
+          if (bTime == null) return -1;
+          return bTime.compareTo(aTime);
+        });
+        if (resolvedAlerts.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.history, color: Colors.grey[400], size: 64),
+                const SizedBox(height: 16),
+                const Text(
+                  "No Resolved Alerts Yet",
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Resolved disasters will appear here",
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: resolvedAlerts.length,
+          itemBuilder: (context, index) {
+            final alert = resolvedAlerts[index].data() as Map<String, dynamic>;
+            final timestamp = alert['timestamp'] as Timestamp?;
+            final resolvedAt = alert['resolved_at'] as Timestamp?;
+            final reportedStr = timestamp != null
+                ? DateFormat('MMM dd, HH:mm').format(timestamp.toDate())
+                : 'Unknown';
+            final resolvedStr = resolvedAt != null
+                ? DateFormat('MMM dd, HH:mm').format(resolvedAt.toDate())
+                : 'Unknown';
+            final resolvedBy = alert['resolved_by'] ?? 'Rescue Team';
+            final disasterType = (alert['disaster_type'] ?? 'normal').toString().toLowerCase();
+
+            // Calculate response time
+            String responseTime = 'N/A';
+            if (timestamp != null && resolvedAt != null) {
+              final duration = resolvedAt.toDate().difference(timestamp.toDate());
+              if (duration.inHours > 0) {
+                responseTime = '${duration.inHours}h ${duration.inMinutes % 60}m';
+              } else {
+                responseTime = '${duration.inMinutes}m';
+              }
+            }
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.green.withOpacity(0.2), width: 2),
+              ),
+              child: InkWell(
+                onTap: () => _showDisasterDetails(context, alert),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _getDisasterTitle(disasterType) + ' - Resolved',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.location_on, size: 14, color: Colors.grey),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    alert['location'] ?? 'Unknown Location',
+                                    style: const TextStyle(fontSize: 13),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                const Icon(Icons.person_outline, size: 14, color: Colors.grey),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    'By: $resolvedBy',
+                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '$reportedStr → $resolvedStr',
+                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.timer, size: 12, color: Colors.green),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Response: $responseTime',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.green,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.grey),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _getDisasterTitle(String type) {
+    switch (type) {
+      case 'fire':
+        return 'Fire Emergency';
+      case 'accident':
+        return 'Accident';
+      case 'stampede':
+        return 'Stampede';
+      default:
+        return 'General Alert';
+    }
+  }
+
+  Color _getDisasterColor(String type) {
+    switch (type) {
+      case 'fire':
+        return const Color(0xFFFF4444);
+      case 'accident':
+        return const Color(0xFFFFA726);
+      case 'stampede':
+        return const Color(0xFF9C27B0);
+      default:
+        return const Color(0xFF4CAF50);
+    }
+  }
+
+  IconData _getDisasterIcon(String type) {
+    switch (type) {
+      case 'fire':
+        return Icons.local_fire_department;
+      case 'accident':
+        return Icons.car_crash;
+      case 'stampede':
+        return Icons.groups;
+      default:
+        return Icons.info_outline;
+    }
+  }
+
+  void _showDisasterDetails(BuildContext context, Map<String, dynamic> alert) async {
+    final timestamp = alert['timestamp'] as Timestamp?;
+    final resolvedAt = alert['resolved_at'] as Timestamp?;
+    final reportedStr = timestamp != null
+        ? DateFormat('MMMM dd, yyyy • HH:mm').format(timestamp.toDate())
+        : 'Unknown';
+    final resolvedStr = resolvedAt != null
+        ? DateFormat('MMMM dd, yyyy • HH:mm').format(resolvedAt.toDate())
+        : 'Unknown';
+    final disasterType = (alert['disaster_type'] ?? 'normal').toString().toLowerCase();
+    final resolvedBy = alert['resolved_by'] ?? 'Rescue Team';
+    final latitude = alert['latitude'];
+    final longitude = alert['longitude'];
+    final mediaUrl = alert['media_url'] ?? alert['photo_url'];
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(color: Color(0xFF9575CD)),
+      ),
+    );
+
+    // Fetch from Supabase
+    String description = 'No description available';
+    String? supabaseImageUrl;
+    
+    try {
+      final supabase = Supabase.instance.client;
+      final response = await supabase
+          .from('insights')
+          .select('description, user_description, media_url')
+          .eq('latitude', latitude)
+          .eq('longitude', longitude)
+          .limit(1)
+          .maybeSingle();
+
+      if (response != null) {
+        description = response['description'] ?? 
+                     response['user_description'] ?? 
+                     'No description available';
+        supabaseImageUrl = response['media_url'];
+      }
+    } catch (e) {
+      print('⚠️ Could not fetch from Supabase: $e');
+    }
+
+    // Close loading
+    if (context.mounted) Navigator.pop(context);
+    if (!context.mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2D36),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.check_circle, color: Colors.green, size: 24),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _getDisasterTitle(disasterType) + ' - Resolved',
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDetailRow(Icons.location_on, 'Location', alert['location'] ?? 'Unknown'),
+              const SizedBox(height: 12),
+              _buildDetailRow(Icons.my_location, 'Latitude', latitude?.toString() ?? 'Unknown'),
+              const SizedBox(height: 12),
+              _buildDetailRow(Icons.my_location, 'Longitude', longitude?.toString() ?? 'Unknown'),
+              const SizedBox(height: 12),
+              _buildDetailRow(Icons.access_time, 'Reported', reportedStr),
+              const SizedBox(height: 12),
+              _buildDetailRow(Icons.check_circle_outline, 'Resolved', resolvedStr),
+              const SizedBox(height: 12),
+              _buildDetailRow(Icons.person_outline, 'Resolved By', resolvedBy),
+              const SizedBox(height: 12),
+              const Text(
+                'Description:',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+              ),
+              if (supabaseImageUrl != null || mediaUrl != null) ...[
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    supabaseImageUrl ?? mediaUrl!,
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Container(
+                        height: 200,
+                        color: Colors.grey[800],
+                        child: const Center(
+                          child: CircularProgressIndicator(color: Color(0xFF9575CD)),
+                        ),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      height: 200,
+                      color: Colors.grey[800],
+                      child: const Center(
+                        child: Icon(Icons.broken_image, color: Colors.grey, size: 48),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(color: Color(0xFF9575CD))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: Colors.white70),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

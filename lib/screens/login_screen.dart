@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:math';
 import 'home_screen.dart';
 import 'admin_login_screen.dart';
+import 'rescuer_login_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -463,10 +464,43 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _errorMessage = null);
 
     try {
-      final cred = await _auth.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
+      final email = _emailController.text.trim();
+      final password = _passwordController.text.trim();
+
+      if (email.isEmpty || password.isEmpty) {
+        setState(() => _errorMessage = "Please enter email and password");
+        return;
+      }
+
+      fb_auth.UserCredential cred;
+      
+      try {
+        // Try to sign in first
+        cred = await _auth.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      } on fb_auth.FirebaseAuthException catch (e) {
+        if (e.code == 'user-not-found' || e.code == 'wrong-password') {
+          // User doesn't exist or wrong password - try to create account
+          try {
+            debugPrint('User not found, creating new account...');
+            cred = await _auth.createUserWithEmailAndPassword(
+              email: email,
+              password: password,
+            );
+            debugPrint('✅ New account created successfully');
+          } catch (createError) {
+            // If creation also fails, show original error
+            if (!mounted) return;
+            setState(() => _errorMessage = "Invalid email or password. Please try again.");
+            return;
+          }
+        } else {
+          // Other Firebase errors
+          rethrow;
+        }
+      }
 
       if (cred.user != null) {
         await _syncUserToSupabase(cred.user!);
@@ -479,10 +513,29 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } on fb_auth.FirebaseAuthException catch (e) {
       if (!mounted) return;
-      setState(() => _errorMessage = e.message);
-    } catch (_) {
+      String errorMessage = "Login failed";
+      
+      switch (e.code) {
+        case 'invalid-email':
+          errorMessage = "Invalid email address format";
+          break;
+        case 'user-disabled':
+          errorMessage = "This account has been disabled";
+          break;
+        case 'too-many-requests':
+          errorMessage = "Too many attempts. Please try again later";
+          break;
+        case 'network-request-failed':
+          errorMessage = "Network error. Check your internet connection";
+          break;
+        default:
+          errorMessage = e.message ?? "Login failed. Please try again";
+      }
+      
+      setState(() => _errorMessage = errorMessage);
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _errorMessage = "An unexpected error occurred.");
+      setState(() => _errorMessage = "An unexpected error occurred: ${e.toString()}");
     }
   }
 
@@ -501,12 +554,27 @@ class _LoginScreenState extends State<LoginScreen> {
         cred = await _auth.signInWithPopup(googleProvider);
       } else {
         // Always sign out first to force account picker
-        await GoogleSignIn().signOut();
-        final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
-        if (googleUser == null) return;
+        try {
+          await GoogleSignIn().signOut();
+        } catch (e) {
+          debugPrint('⚠️ Google Sign-Out error (can be ignored): $e');
+        }
+
+        final GoogleSignInAccount? googleUser = await GoogleSignIn(
+          scopes: ['email', 'profile'],
+        ).signIn();
+
+        if (googleUser == null) {
+          debugPrint('❌ Google Sign-In cancelled by user');
+          return; // User cancelled the sign-in
+        }
+
+        debugPrint('✅ Google User: ${googleUser.email}');
 
         final GoogleSignInAuthentication googleAuth =
             await googleUser.authentication;
+
+        debugPrint('✅ Got Google Auth tokens');
 
         final fb_auth.AuthCredential credential =
             fb_auth.GoogleAuthProvider.credential(
@@ -514,7 +582,11 @@ class _LoginScreenState extends State<LoginScreen> {
           idToken: googleAuth.idToken,
         );
 
+        debugPrint('✅ Created Firebase credential');
+
         cred = await _auth.signInWithCredential(credential);
+        
+        debugPrint('✅ Firebase sign-in successful: ${cred.user?.email}');
       }
 
       if (cred.user != null) {
@@ -526,9 +598,39 @@ class _LoginScreenState extends State<LoginScreen> {
         context,
         MaterialPageRoute(builder: (_) => const HomeScreen()),
       );
-    } catch (_) {
+    } on fb_auth.FirebaseAuthException catch (e) {
+      debugPrint('❌ Firebase Auth Error: ${e.code} - ${e.message}');
       if (!mounted) return;
-      setState(() => _errorMessage = "Google Sign-In failed.");
+      String errorMessage = "Google Sign-In failed.";
+      
+      switch (e.code) {
+        case 'account-exists-with-different-credential':
+          errorMessage = "An account already exists with this email using a different sign-in method.";
+          break;
+        case 'invalid-credential':
+          errorMessage = "Invalid credentials. Please try again.";
+          break;
+        case 'operation-not-allowed':
+          errorMessage = "Google Sign-In is not enabled. Please contact support.";
+          break;
+        case 'user-disabled':
+          errorMessage = "This account has been disabled.";
+          break;
+        case 'user-not-found':
+          errorMessage = "No account found. Creating new account...";
+          break;
+        case 'wrong-password':
+          errorMessage = "Invalid password.";
+          break;
+        default:
+          errorMessage = "Google Sign-In failed: ${e.message}";
+      }
+      
+      setState(() => _errorMessage = errorMessage);
+    } catch (e) {
+      debugPrint('❌ Google Sign-In Error: $e');
+      if (!mounted) return;
+      setState(() => _errorMessage = "Google Sign-In failed. Please check your internet connection and try again.");
     }
   }
 
@@ -1004,22 +1106,68 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       icon: const Icon(Icons.admin_panel_settings,
-                          color: Colors.orange, size: 22),
+                          color: Color(0xFF9575CD), size: 22),
                       label: const Text(
                         'Admin Dashboard Login',
                         style: TextStyle(
-                          color: Colors.orange,
+                          color: Color(0xFF9575CD),
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                       style: OutlinedButton.styleFrom(
                         side:
-                            const BorderSide(color: Colors.orange, width: 1.5),
+                            const BorderSide(color: Color(0xFF9575CD), width: 1.5),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),
-                        backgroundColor: Colors.orange.withOpacity(0.05),
+                        backgroundColor: Color(0xFF9575CD).withOpacity(0.05),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 16),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Rescuer Login Button
+              Center(
+                child: Column(
+                  children: [
+                    const Text(
+                      'Rescue Team & Emergency Responders',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const RescuerLoginScreen(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.health_and_safety,
+                          color: Colors.green, size: 22),
+                      label: const Text(
+                        'Rescuer Dashboard Login',
+                        style: TextStyle(
+                          color: Colors.green,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side:
+                            const BorderSide(color: Colors.green, width: 1.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        backgroundColor: Colors.green.withOpacity(0.05),
                         padding: const EdgeInsets.symmetric(
                             horizontal: 24, vertical: 16),
                       ),

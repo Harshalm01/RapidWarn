@@ -63,9 +63,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             const SizedBox(height: 24),
             _buildMonthlyBarChart(),
             const SizedBox(height: 24),
-            _buildHeatmapSection(),
-            const SizedBox(height: 24),
-            _buildTrendAnalysis(),
           ],
         ),
       ),
@@ -83,39 +80,36 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         final docs = snapshot.data!;
         final totalReports = docs.length;
         final fireReports = docs
-            .where(
-                (doc) => (doc['prediction'] ?? doc['classification']) == 'fire')
+            .where((doc) => (doc['disaster_type'] ?? '').toString().toLowerCase() == 'fire')
             .length;
         final accidents = docs
-            .where((doc) =>
-                (doc['prediction'] ?? doc['classification']) == 'accident')
+            .where((doc) => (doc['disaster_type'] ?? '').toString().toLowerCase() == 'accident')
             .length;
-        final avgConfidence = docs.isEmpty
-            ? 0.0
-            : docs
-                    .map((doc) => (doc['confidence'] ?? 0.0).toDouble())
-                    .reduce((a, b) => a + b) /
-                docs.length;
+        final stampedes = docs
+            .where((doc) => (doc['disaster_type'] ?? '').toString().toLowerCase() == 'stampede')
+            .length;
 
         return Row(
           children: [
             Expanded(
-                child: _buildSummaryCard(
-                    'Total Reports', totalReports.toString(), Colors.blue)),
+              flex: 1,
+              child: _buildSummaryCard(
+                  'Total Reports', totalReports.toString(), Colors.blue)),
             const SizedBox(width: 12),
             Expanded(
-                child: _buildSummaryCard(
-                    'Fire Incidents', fireReports.toString(), Colors.red)),
+              flex: 1,
+              child: _buildSummaryCard(
+                  'Fire Incidents', fireReports.toString(), const Color(0xFFFF4444))),
             const SizedBox(width: 12),
             Expanded(
-                child: _buildSummaryCard(
-                    'Accidents', accidents.toString(), Colors.orange)),
+              flex: 1,
+              child: _buildSummaryCard(
+                  'Accidents', accidents.toString(), const Color(0xFFFFA726))),
             const SizedBox(width: 12),
             Expanded(
-                child: _buildSummaryCard(
-                    'Avg Confidence',
-                    '${(avgConfidence * 100).toStringAsFixed(1)}%',
-                    Colors.green)),
+              flex: 1,
+              child: _buildSummaryCard(
+                  'Stampede', stampedes.toString(), const Color(0xFF9C27B0))),
           ],
         );
       },
@@ -124,6 +118,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Widget _buildSummaryCard(String title, String value, Color color) {
     return Container(
+      height: 90,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFF2A2D36),
@@ -132,18 +127,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             title,
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 8),
           Text(
             value,
             style: TextStyle(
-                color: color, fontSize: 18, fontWeight: FontWeight.bold),
+                color: color, fontSize: 24, fontWeight: FontWeight.bold),
           ),
         ],
       ),
@@ -204,19 +199,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-          StreamBuilder<QuerySnapshot>(
-            stream: _getFilteredStream(),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _getFilteredData(),
             builder: (context, snapshot) {
-              if (!snapshot.hasData) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
                     child: CircularProgressIndicator(color: Colors.orange));
               }
 
-              final docs = snapshot.data!.docs;
+              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return const Center(
+                  child: Text('No data available',
+                      style: TextStyle(color: Colors.grey)),
+                );
+              }
+
+              final docs = snapshot.data!;
               final typeData = <String, int>{};
 
               for (var doc in docs) {
-                final type = (doc['prediction'] ?? doc['classification'] ?? 'normal').toString().toLowerCase();
+                final type = (doc['disaster_type'] ?? 'normal').toString().toLowerCase();
                 typeData[type] = (typeData[type] ?? 0) + 1;
               }
 
@@ -317,16 +319,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             style: TextStyle(color: Colors.white60, fontSize: 12),
           ),
           const SizedBox(height: 16),
-          StreamBuilder<QuerySnapshot>(
-            stream: _getFilteredStream(),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _getFilteredData(),
             builder: (context, snapshot) {
-              if (!snapshot.hasData) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
                     child: CircularProgressIndicator(color: Colors.orange));
               }
 
-              final docs = snapshot.data!.docs;
-              final lineData = _processDisasterLineData(docs);
+              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return const Center(
+                  child: Text('No data available',
+                      style: TextStyle(color: Colors.grey)),
+                );
+              }
+
+              final docs = snapshot.data!;
+              final lineData = _processDisasterLineDataFromSupabase(docs);
 
               if (lineData['fire']!.isEmpty && lineData['accident']!.isEmpty && lineData['stampede']!.isEmpty) {
                 return const Center(
@@ -335,14 +344,53 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 );
               }
 
+              // Calculate max value for Y-axis
+              final maxFireValue = lineData['fire'].isEmpty ? 0.0 : (lineData['fire'] as List<FlSpot>).map((e) => e.y).reduce((a, b) => a > b ? a : b);
+              final maxAccidentValue = lineData['accident'].isEmpty ? 0.0 : (lineData['accident'] as List<FlSpot>).map((e) => e.y).reduce((a, b) => a > b ? a : b);
+              final maxStampedeValue = lineData['stampede'].isEmpty ? 0.0 : (lineData['stampede'] as List<FlSpot>).map((e) => e.y).reduce((a, b) => a > b ? a : b);
+              final maxValue = [maxFireValue, maxAccidentValue, maxStampedeValue].reduce((a, b) => a > b ? a : b);
+              final yInterval = maxValue <= 10 ? 5.0 : (maxValue <= 50 ? 10.0 : 20.0);
+
               return SizedBox(
                 height: 250,
                 child: LineChart(
                   LineChartData(
+                    lineTouchData: LineTouchData(
+                      enabled: true,
+                      touchTooltipData: LineTouchTooltipData(
+                        getTooltipColor: (touchedSpot) => Colors.black87,
+                        tooltipPadding: const EdgeInsets.all(8),
+                        tooltipMargin: 8,
+                        getTooltipItems: (touchedSpots) {
+                          return touchedSpots.map((spot) {
+                            String label = '';
+                            Color color = Colors.white;
+                            if (spot.barIndex == 0) {
+                              label = 'Fire';
+                              color = const Color(0xFFFF4444);
+                            } else if (spot.barIndex == 1) {
+                              label = 'Accident';
+                              color = const Color(0xFFFFA726);
+                            } else if (spot.barIndex == 2) {
+                              label = 'Stampede';
+                              color = const Color(0xFF9C27B0);
+                            }
+                            return LineTooltipItem(
+                              '$label\n${spot.y.toInt()}',
+                              TextStyle(
+                                color: color,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            );
+                          }).toList();
+                        },
+                      ),
+                    ),
                     gridData: FlGridData(
                       show: true,
                       drawVerticalLine: false,
-                      horizontalInterval: 1,
+                      horizontalInterval: yInterval,
                       getDrawingHorizontalLine: (value) {
                         return FlLine(
                           color: Colors.white12,
@@ -355,11 +403,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         sideTitles: SideTitles(
                           showTitles: true,
                           reservedSize: 35,
-                          getTitlesWidget: (value, meta) => Text(
-                            value.toInt().toString(),
-                            style: const TextStyle(
-                                color: Colors.white70, fontSize: 11),
-                          ),
+                          interval: yInterval,
+                          getTitlesWidget: (value, meta) {
+                            if (value == 0 || value % yInterval == 0) {
+                              return Text(
+                                value.toInt().toString(),
+                                style: const TextStyle(
+                                    color: Colors.white70, fontSize: 11),
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          },
                         ),
                       ),
                       bottomTitles: AxisTitles(
@@ -370,16 +424,20 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             final labels = lineData['labels'] as List<String>;
                             final index = value.toInt();
                             if (index >= 0 && index < labels.length) {
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  labels[index],
-                                  style: const TextStyle(
-                                      color: Colors.white70, fontSize: 10),
-                                ),
-                              );
+                              final label = labels[index];
+                              // Only show non-empty labels (we already set empty strings for skipped labels)
+                              if (label.isNotEmpty) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    label,
+                                    style: const TextStyle(
+                                        color: Colors.white70, fontSize: 9),
+                                  ),
+                                );
+                              }
                             }
-                            return const Text('');
+                            return const SizedBox.shrink();
                           },
                         ),
                       ),
@@ -527,16 +585,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             style: TextStyle(color: Colors.white60, fontSize: 12),
           ),
           const SizedBox(height: 16),
-          StreamBuilder<QuerySnapshot>(
-            stream: _getFilteredStream(),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _getFilteredData(),
             builder: (context, snapshot) {
-              if (!snapshot.hasData) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
                     child: CircularProgressIndicator(color: Colors.orange));
               }
 
-              final docs = snapshot.data!.docs;
-              final barData = _processMonthlyBarData(docs);
+              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return const Center(
+                  child: Text('No data available',
+                      style: TextStyle(color: Colors.grey)),
+                );
+              }
+
+              final docs = snapshot.data!;
+              final barData = _processMonthlyBarDataFromSupabase(docs);
 
               if (barData.isEmpty) {
                 return const Center(
@@ -545,12 +610,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 );
               }
 
+              // Calculate max value and appropriate interval
+              final maxValue = barData.map((e) => e['fire'] + e['accident'] + e['stampede'] + e['normal']).reduce((a, b) => a > b ? a : b);
+              final maxY = maxValue * 1.2;
+              final yInterval = maxValue <= 10 ? 5.0 : (maxValue <= 50 ? 10.0 : 20.0);
+
               return SizedBox(
                 height: 250,
                 child: BarChart(
                   BarChartData(
                     alignment: BarChartAlignment.spaceAround,
-                    maxY: barData.map((e) => e['fire'] + e['accident'] + e['stampede'] + e['normal']).reduce((a, b) => a > b ? a : b) * 1.2,
+                    maxY: maxY,
                     barTouchData: BarTouchData(
                       enabled: true,
                       touchTooltipData: BarTouchTooltipData(
@@ -612,14 +682,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         sideTitles: SideTitles(
                           showTitles: true,
                           reservedSize: 35,
+                          interval: yInterval,
                           getTitlesWidget: (value, meta) {
-                            return Text(
-                              value.toInt().toString(),
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 11,
-                              ),
-                            );
+                            if (value == 0 || value % yInterval == 0) {
+                              return Text(
+                                value.toInt().toString(),
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                ),
+                              );
+                            }
+                            return const SizedBox.shrink();
                           },
                         ),
                       ),
@@ -633,7 +707,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     gridData: FlGridData(
                       show: true,
                       drawVerticalLine: false,
-                      horizontalInterval: 1,
+                      horizontalInterval: yInterval,
                       getDrawingHorizontalLine: (value) {
                         return FlLine(
                           color: Colors.white12,
@@ -898,34 +972,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     try {
-      // First try to get data from incident_reports table (where ML results are stored)
-      final incidentResponse = await supabase
-          .from('incident_reports')
+      // Get data from Supabase 'insights' table (where disasters are stored)
+      final response = await supabase
+          .from('insights')
           .select('*')
           .gte('created_at', startDate.toIso8601String())
           .order('created_at', ascending: false);
 
-      // Also try to get data from insights table
-      final insightsResponse = await supabase
-          .from('insights')
-          .select('*')
-          .gte('timestamp', startDate.toIso8601String())
-          .order('timestamp', ascending: false);
-
-      // Combine both data sources
       List<Map<String, dynamic>> allData = [];
-
-      if (incidentResponse.isNotEmpty) {
-        allData.addAll(List<Map<String, dynamic>>.from(incidentResponse));
+      
+      if (response.isNotEmpty) {
+        allData = List<Map<String, dynamic>>.from(response);
       }
 
-      if (insightsResponse.isNotEmpty) {
-        allData.addAll(List<Map<String, dynamic>>.from(insightsResponse));
-      }
-
+      print('✅ Fetched ${allData.length} disaster reports from Supabase insights table');
       return allData;
     } catch (e) {
-      print('Error fetching analytics data: $e');
+      print('❌ Error fetching analytics data: $e');
       return [];
     }
   }
@@ -946,42 +1009,105 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   // Process data for disaster line chart (3 separate lines)
-  Map<String, dynamic> _processDisasterLineData(List<QueryDocumentSnapshot> docs) {
-    final fireData = <String, int>{};
-    final accidentData = <String, int>{};
-    final stampedeData = <String, int>{};
-    final format = _selectedTimeRange == '24 hours' ? 'HH:00' : 'MMM dd';
+  // Process Supabase data for line chart
+  Map<String, dynamic> _processDisasterLineDataFromSupabase(List<Map<String, dynamic>> docs) {
+    final fireData = <DateTime, int>{};
+    final accidentData = <DateTime, int>{};
+    final stampedeData = <DateTime, int>{};
 
+    // Always group by day for consistent date display
     for (var doc in docs) {
-      final timestamp = doc['timestamp'] as Timestamp?;
-      if (timestamp != null) {
-        final dateStr = DateFormat(format).format(timestamp.toDate());
-        final type = (doc['prediction'] ?? doc['classification'] ?? '').toString().toLowerCase();
+      final createdAt = doc['created_at'] as String?;
+      if (createdAt != null) {
+        final dateTime = DateTime.parse(createdAt);
+        // Group by day only
+        final dayKey = DateTime(dateTime.year, dateTime.month, dateTime.day);
+        final type = (doc['disaster_type'] ?? '').toString().toLowerCase();
         
         if (type == 'fire') {
-          fireData[dateStr] = (fireData[dateStr] ?? 0) + 1;
+          fireData[dayKey] = (fireData[dayKey] ?? 0) + 1;
         } else if (type == 'accident') {
-          accidentData[dateStr] = (accidentData[dateStr] ?? 0) + 1;
+          accidentData[dayKey] = (accidentData[dayKey] ?? 0) + 1;
         } else if (type == 'stampede') {
-          stampedeData[dateStr] = (stampedeData[dateStr] ?? 0) + 1;
+          stampedeData[dayKey] = (stampedeData[dayKey] ?? 0) + 1;
         }
       }
     }
 
     // Get all unique dates sorted
-    final allDates = <String>{};
+    final allDates = <DateTime>{};
     allDates.addAll(fireData.keys);
     allDates.addAll(accidentData.keys);
     allDates.addAll(stampedeData.keys);
+    
+    if (allDates.isEmpty) {
+      return {
+        'fire': <FlSpot>[],
+        'accident': <FlSpot>[],
+        'stampede': <FlSpot>[],
+        'labels': <String>[],
+      };
+    }
+
     final sortedDates = allDates.toList()..sort();
+
+    // Always create a date range spanning multiple days for better visualization
+    final List<DateTime> dateRange;
+    if (sortedDates.length <= 1) {
+      // If 1 or 0 dates, create a 7-day range
+      final referenceDate = sortedDates.isEmpty ? DateTime.now() : sortedDates[0];
+      dateRange = [];
+      for (int i = -6; i <= 0; i++) {
+        dateRange.add(DateTime(referenceDate.year, referenceDate.month, referenceDate.day + i));
+      }
+    } else if (sortedDates.length < 5) {
+      // If less than 5 dates, fill in the gaps
+      final firstDate = sortedDates.first;
+      final lastDate = sortedDates.last;
+      final daysDiff = lastDate.difference(firstDate).inDays;
+      
+      if (daysDiff < 6) {
+        // Extend to 7 days
+        dateRange = [];
+        for (int i = 0; i < 7; i++) {
+          dateRange.add(DateTime(firstDate.year, firstDate.month, firstDate.day + i));
+        }
+      } else {
+        dateRange = sortedDates;
+      }
+    } else {
+      dateRange = sortedDates;
+    }
+
+    // Create labels - always show date format "dd MMM"
+    final labels = <String>[];
+    
+    // Calculate interval to show ~5-6 labels maximum
+    int labelInterval;
+    if (dateRange.length <= 7) {
+      labelInterval = 1; // Show all labels
+    } else if (dateRange.length <= 14) {
+      labelInterval = 2; // Show every 2nd label
+    } else {
+      labelInterval = (dateRange.length / 6).ceil(); // Show ~6 labels
+    }
+    
+    for (int i = 0; i < dateRange.length; i++) {
+      // Show first, last, and evenly spaced labels
+      if (i == 0 || i == dateRange.length - 1 || i % labelInterval == 0) {
+        labels.add(DateFormat('dd MMM').format(dateRange[i]));
+      } else {
+        labels.add(''); // Empty label
+      }
+    }
 
     // Create FlSpot lists for each disaster type
     final fireSpots = <FlSpot>[];
     final accidentSpots = <FlSpot>[];
     final stampedeSpots = <FlSpot>[];
 
-    for (int i = 0; i < sortedDates.length; i++) {
-      final date = sortedDates[i];
+    for (int i = 0; i < dateRange.length; i++) {
+      final date = dateRange[i];
       fireSpots.add(FlSpot(i.toDouble(), (fireData[date] ?? 0).toDouble()));
       accidentSpots.add(FlSpot(i.toDouble(), (accidentData[date] ?? 0).toDouble()));
       stampedeSpots.add(FlSpot(i.toDouble(), (stampedeData[date] ?? 0).toDouble()));
@@ -991,20 +1117,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       'fire': fireSpots,
       'accident': accidentSpots,
       'stampede': stampedeSpots,
-      'labels': sortedDates,
+      'labels': labels,
     };
   }
 
-  // Process data for monthly bar chart
-  List<Map<String, dynamic>> _processMonthlyBarData(List<QueryDocumentSnapshot> docs) {
-    final monthlyData = <String, Map<String, double>>{};
+  // Process Supabase data for monthly bar chart
+  List<Map<String, dynamic>> _processMonthlyBarDataFromSupabase(List<Map<String, dynamic>> docs) {
+    final monthlyData = <DateTime, Map<String, double>>{};
 
     for (var doc in docs) {
-      final timestamp = doc['timestamp'] as Timestamp?;
-      if (timestamp != null) {
-        final date = timestamp.toDate();
-        final monthKey = DateFormat('MMM yy').format(date);
-        final type = (doc['prediction'] ?? doc['classification'] ?? 'normal').toString().toLowerCase();
+      final createdAt = doc['created_at'] as String?;
+      if (createdAt != null) {
+        final date = DateTime.parse(createdAt);
+        // Use first day of month as key
+        final monthKey = DateTime(date.year, date.month, 1);
+        final type = (doc['disaster_type'] ?? 'normal').toString().toLowerCase();
 
         if (!monthlyData.containsKey(monthKey)) {
           monthlyData[monthKey] = {
@@ -1027,30 +1154,35 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       }
     }
 
-    // Convert to list and sort by date
-    final result = monthlyData.entries.map((entry) {
+    // Create last 6 months array (fill missing months with zeros)
+    final now = DateTime.now();
+    final sixMonthsAgo = DateTime(now.year, now.month - 5, 1);
+    final allMonths = <DateTime>[];
+    
+    for (int i = 0; i < 6; i++) {
+      final month = DateTime(sixMonthsAgo.year, sixMonthsAgo.month + i, 1);
+      allMonths.add(month);
+    }
+
+    // Convert to list format with proper labels
+    final result = allMonths.map((month) {
+      final data = monthlyData[month] ?? {
+        'fire': 0.0,
+        'accident': 0.0,
+        'stampede': 0.0,
+        'normal': 0.0,
+      };
+      
       return {
-        'label': entry.key,
-        'fire': entry.value['fire']!,
-        'accident': entry.value['accident']!,
-        'stampede': entry.value['stampede']!,
-        'normal': entry.value['normal']!,
+        'label': DateFormat('MMM yy').format(month),
+        'fire': data['fire']!,
+        'accident': data['accident']!,
+        'stampede': data['stampede']!,
+        'normal': data['normal']!,
       };
     }).toList();
 
-    // Sort by month (latest 6 months)
-    result.sort((a, b) {
-      try {
-        final dateA = DateFormat('MMM yy').parse(a['label'] as String);
-        final dateB = DateFormat('MMM yy').parse(b['label'] as String);
-        return dateA.compareTo(dateB);
-      } catch (e) {
-        return 0;
-      }
-    });
-
-    // Return only last 6 months
-    return result.length > 6 ? result.sublist(result.length - 6) : result;
+    return result;
   }
 
   List<List<double>> _processHeatmapData(List<QueryDocumentSnapshot> docs) {
@@ -1176,9 +1308,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         startDate = now.subtract(const Duration(days: 7));
     }
 
-    // Return Firestore stream filtered by timestamp
+    // Return Firestore stream from 'insights' collection where disasters are stored
     return FirebaseFirestore.instance
-        .collection('incident_reports')
+        .collection('insights')
         .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
         .orderBy('timestamp', descending: true)
         .snapshots();
