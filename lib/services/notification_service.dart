@@ -96,6 +96,34 @@ class NotificationService {
       playSound: true,
     );
 
+    const personalChannel = AndroidNotificationChannel(
+      'personal_alerts',
+      'Personal Upload Alerts',
+      description: 'Notifications about your own upload classifications',
+      importance: Importance.high,
+      playSound: true,
+    );
+
+    const adminChannel = AndroidNotificationChannel(
+      'admin_alerts',
+      'Admin Alerts',
+      description:
+          'Notifications for administrators about new disasters and user activities',
+      importance: Importance.max,
+      playSound: true,
+      sound: RawResourceAndroidNotificationSound('notification_alert'),
+    );
+
+    const rescuerChannel = AndroidNotificationChannel(
+      'rescuer_alerts',
+      'Rescuer Alerts',
+      description:
+          'Notifications for rescuers about new disasters and approvals',
+      importance: Importance.max,
+      playSound: true,
+      sound: RawResourceAndroidNotificationSound('notification_alert'),
+    );
+
     await flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
@@ -110,6 +138,21 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(locationChannel);
+
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(personalChannel);
+
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(adminChannel);
+
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(rescuerChannel);
 
     debugPrint('✅ Notification channels created');
   }
@@ -288,6 +331,32 @@ class NotificationService {
   /// Get current FCM token
   String? get currentToken => _currentToken;
 
+  /// Get current user's role
+  Future<String?> getCurrentUserRole() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return null;
+
+    try {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (userDoc.exists) {
+        return userDoc.data()?['role'] as String?;
+      }
+    } catch (e) {
+      debugPrint('❌ Failed to get user role: $e');
+    }
+    return null;
+  }
+
+  /// Check if current user is admin or rescuer
+  Future<bool> isCurrentUserAdminOrRescuer() async {
+    final role = await getCurrentUserRole();
+    return role == 'admin' || role == 'rescuer';
+  }
+
   /// Test notification (for debugging)
   Future<void> sendTestNotification() async {
     await showLocalNotification(
@@ -352,6 +421,60 @@ class NotificationService {
       debugPrint('🎉 All notification tests completed successfully!');
     } catch (e) {
       debugPrint('❌ Failed to send test notifications: $e');
+    }
+  }
+
+  /// Test admin and rescuer notifications
+  Future<void> sendAdminRescuerTestNotifications() async {
+    try {
+      debugPrint('🚀 SENDING ADMIN/RESCUER NOTIFICATION TESTS...');
+
+      final userRole = await getCurrentUserRole();
+
+      if (userRole == 'admin') {
+        // Test admin notifications
+        await Future.delayed(const Duration(seconds: 1));
+        await showLocalNotification(
+          title: '🚨 Test Admin Alert',
+          body:
+              'This is a test notification for administrators. New disaster reports will appear like this.',
+          channelId: 'admin_alerts',
+        );
+        debugPrint('✅ Admin alert test sent');
+
+        await Future.delayed(const Duration(seconds: 2));
+        await showLocalNotification(
+          title: '✅ Test Admin Approval Alert',
+          body:
+              'Test notification: A rescuer has approved a disaster report. Response is now active.',
+          channelId: 'admin_alerts',
+        );
+        debugPrint('✅ Admin approval test sent');
+      }
+
+      if (userRole == 'rescuer') {
+        // Test rescuer notifications
+        await Future.delayed(const Duration(seconds: 1));
+        await showLocalNotification(
+          title: '🆘 Test Rescuer Alert',
+          body:
+              'This is a test notification for rescuers. New disaster uploads will appear like this.',
+          channelId: 'rescuer_alerts',
+        );
+        debugPrint('✅ Rescuer alert test sent');
+      }
+
+      if (userRole != 'admin' && userRole != 'rescuer') {
+        await showLocalNotification(
+          title: '❌ Access Test',
+          body:
+              'You are not an admin or rescuer. Admin/rescuer notifications are not available for regular users.',
+          channelId: 'general_notifications',
+        );
+        debugPrint('⚠️ User is not admin or rescuer');
+      }
+    } catch (e) {
+      debugPrint('❌ Failed to send admin/rescuer test notifications: $e');
     }
   }
 
@@ -484,24 +607,77 @@ class NotificationService {
         channelId: 'emergency_alerts',
       );
 
-      // Save to Firestore for location-based alerts with media info
-      final alertDoc =
-          await FirebaseFirestore.instance.collection('disaster_alerts').add({
-        'disaster_type': disasterType,
-        'latitude': latitude,
-        'longitude': longitude,
-        'location': location,
-        'media_url': mediaUrl,
-        'photo_url': mediaUrl, // Add both for compatibility
-        'uploader_id': uploaderId,
-        'timestamp': FieldValue.serverTimestamp(),
-        'source': 'ML_classification',
-        'status': 'active',
-        'severity': 'high',
-        'intensity': 'high', // Add for compatibility
-        'notified_users': [],
-        'alert_radius': 5000, // 5km radius
-      });
+      // Get uploader info for better admin/rescuer visibility
+      String uploaderName = 'Unknown User';
+      String uploaderEmail = 'No email';
+
+      if (uploaderId != null) {
+        try {
+          final uploaderDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(uploaderId)
+              .get();
+
+          if (uploaderDoc.exists) {
+            final data = uploaderDoc.data()!;
+            uploaderName =
+                data['name'] ?? data['displayName'] ?? 'Unknown User';
+            uploaderEmail = data['email'] ?? 'No email';
+          }
+        } catch (e) {
+          debugPrint('⚠️ Could not fetch uploader info: $e');
+        }
+      }
+
+      // Check if there's already a pending alert for this uploader/location
+      QuerySnapshot existingAlerts = await FirebaseFirestore.instance
+          .collection('disaster_alerts')
+          .where('uploader_id', isEqualTo: uploaderId)
+          .where('status', isEqualTo: 'pending')
+          .where('source', isEqualTo: 'user_upload')
+          .limit(1)
+          .get();
+
+      DocumentReference alertDoc;
+
+      if (existingAlerts.docs.isNotEmpty) {
+        // Update existing pending alert with ML classification
+        alertDoc = existingAlerts.docs.first.reference;
+        await alertDoc.update({
+          'disaster_type': disasterType,
+          'location': location,
+          'source': 'ML_classification',
+          'severity': 'high',
+          'intensity': 'high',
+          'ml_classified_at': FieldValue.serverTimestamp(),
+          'uploader_name': uploaderName, // Update name if not set
+          'uploader_email': uploaderEmail, // Update email if not set
+        });
+        debugPrint('✅ Updated existing pending alert with ML classification');
+      } else {
+        // Create new alert (fallback for older uploads without pending alerts)
+        alertDoc =
+            await FirebaseFirestore.instance.collection('disaster_alerts').add({
+          'disaster_type': disasterType,
+          'latitude': latitude,
+          'longitude': longitude,
+          'location': location,
+          'media_url': mediaUrl,
+          'photo_url': mediaUrl, // Add both for compatibility
+          'uploader_id': uploaderId,
+          'uploader_name': uploaderName,
+          'uploader_email': uploaderEmail,
+          'timestamp': FieldValue.serverTimestamp(),
+          'source': 'ML_classification',
+          'status': 'pending', // Still needs admin/rescuer approval
+          'severity': 'high',
+          'intensity': 'high',
+          'notified_users': [],
+          'alert_radius': 5000,
+        });
+        debugPrint(
+            '✅ Created new disaster alert (no existing pending alert found)');
+      }
 
       // ✅ Notify nearby users within 5km radius
       await _notifyNearbyUsers(
@@ -515,6 +691,30 @@ class NotificationService {
       debugPrint('✅ Disaster alert sent successfully to nearby users');
     } catch (e) {
       debugPrint('❌ Failed to send disaster alert: $e');
+    }
+  }
+
+  /// Send personalized notification to user about their own upload classification
+  Future<void> sendPersonalClassificationAlert({
+    required String disasterType,
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      debugPrint(
+          '🎯 Sending personal classification alert for $disasterType at $latitude, $longitude');
+
+      // Send immediate local notification to user about their own upload
+      await showLocalNotification(
+        title: '🎯 Your Upload Classified!',
+        body:
+            'At your location, ${disasterType.toUpperCase()} has been detected and classified by our AI system. Thank you for reporting!',
+        channelId: 'personal_alerts',
+      );
+
+      debugPrint('✅ Personal classification alert sent successfully');
+    } catch (e) {
+      debugPrint('❌ Failed to send personal classification alert: $e');
     }
   }
 
@@ -721,6 +921,265 @@ class NotificationService {
       }
     } catch (e) {
       debugPrint('❌ Error sending FCM to user $userId: $e');
+    }
+  }
+
+  /// Notify admins and rescuers when a new disaster is uploaded
+  Future<void> notifyAdminsAndRescuersOnUpload({
+    required double latitude,
+    required double longitude,
+    required String uploaderId,
+    String? mediaUrl,
+  }) async {
+    try {
+      debugPrint(
+          '🚨 Notifying admins and rescuers about new disaster upload...');
+
+      // Get uploader info
+      final uploaderDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uploaderId)
+          .get();
+
+      final uploaderName = uploaderDoc.data()?['name'] ??
+          uploaderDoc.data()?['displayName'] ??
+          'Unknown User';
+      final uploaderEmail = uploaderDoc.data()?['email'] ?? 'No email';
+
+      // Get location name if possible
+      String locationText =
+          'Lat: ${latitude.toStringAsFixed(4)}, Lng: ${longitude.toStringAsFixed(4)}';
+
+      // Check if current user is admin or rescuer
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final currentUserRole =
+          currentUser != null ? await getCurrentUserRole() : null;
+      final shouldShowLocalNotification =
+          currentUserRole == 'admin' || currentUserRole == 'rescuer';
+
+      // Find all admins and rescuers
+      final adminQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'admin')
+          .get();
+
+      final rescuerQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'rescuer')
+          .get();
+
+      int notifiedCount = 0;
+
+      // Notify admins
+      for (var adminDoc in adminQuery.docs) {
+        try {
+          await _sendFCMToUser(
+            userId: adminDoc.id,
+            title: '🚨 New Disaster Reported',
+            body:
+                '$uploaderName reported a potential disaster at $locationText. Awaiting ML classification.',
+            data: {
+              'type': 'new_disaster_upload',
+              'uploader_id': uploaderId,
+              'uploader_name': uploaderName,
+              'uploader_email': uploaderEmail,
+              'latitude': latitude.toString(),
+              'longitude': longitude.toString(),
+              'media_url': mediaUrl ?? '',
+              'timestamp': DateTime.now().toIso8601String(),
+            },
+          );
+
+          // Show local notification if current user is an admin
+          if (shouldShowLocalNotification && currentUser?.uid == adminDoc.id) {
+            await showLocalNotification(
+              title: '🚨 New Disaster Reported',
+              body:
+                  '$uploaderName reported a potential disaster at $locationText. Tap to review.',
+              channelId: 'admin_alerts',
+              payload: 'new_disaster_upload:$uploaderId:$latitude:$longitude',
+            );
+            debugPrint('📱 Local notification shown to current admin user');
+          }
+
+          notifiedCount++;
+          debugPrint('✅ Notified admin: ${adminDoc.id}');
+        } catch (e) {
+          debugPrint('❌ Failed to notify admin ${adminDoc.id}: $e');
+        }
+      }
+
+      // Notify rescuers
+      for (var rescuerDoc in rescuerQuery.docs) {
+        try {
+          await _sendFCMToUser(
+            userId: rescuerDoc.id,
+            title: '🆘 New Disaster Upload',
+            body:
+                '$uploaderName uploaded disaster media at $locationText. Please prepare for potential response.',
+            data: {
+              'type': 'new_disaster_upload',
+              'uploader_id': uploaderId,
+              'uploader_name': uploaderName,
+              'uploader_email': uploaderEmail,
+              'latitude': latitude.toString(),
+              'longitude': longitude.toString(),
+              'media_url': mediaUrl ?? '',
+              'timestamp': DateTime.now().toIso8601String(),
+            },
+          );
+
+          // Show local notification if current user is a rescuer
+          if (shouldShowLocalNotification &&
+              currentUser?.uid == rescuerDoc.id) {
+            await showLocalNotification(
+              title: '🆘 New Disaster Upload',
+              body:
+                  '$uploaderName uploaded disaster media at $locationText. Tap to review.',
+              channelId: 'rescuer_alerts',
+              payload: 'new_disaster_upload:$uploaderId:$latitude:$longitude',
+            );
+            debugPrint('📱 Local notification shown to current rescuer user');
+          }
+
+          notifiedCount++;
+          debugPrint('✅ Notified rescuer: ${rescuerDoc.id}');
+        } catch (e) {
+          debugPrint('❌ Failed to notify rescuer ${rescuerDoc.id}: $e');
+        }
+      }
+
+      debugPrint(
+          '✅ Successfully notified $notifiedCount admins and rescuers about new disaster upload');
+    } catch (e) {
+      debugPrint('❌ Failed to notify admins and rescuers: $e');
+    }
+  }
+
+  /// Notify admins and users when a rescuer approves a disaster
+  Future<void> notifyOnDisasterApproval({
+    required String disasterType,
+    required double latitude,
+    required double longitude,
+    required String uploaderId,
+    required String rescuerId,
+    String? mediaUrl,
+  }) async {
+    try {
+      debugPrint('✅ Notifying about disaster approval...');
+
+      // Get rescuer info
+      final rescuerDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(rescuerId)
+          .get();
+
+      final rescuerName = rescuerDoc.data()?['name'] ??
+          rescuerDoc.data()?['displayName'] ??
+          'Unknown Rescuer';
+
+      // Get uploader info
+      final uploaderDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uploaderId)
+          .get();
+
+      final uploaderName = uploaderDoc.data()?['name'] ??
+          uploaderDoc.data()?['displayName'] ??
+          'Unknown User';
+
+      String locationText =
+          'Lat: ${latitude.toStringAsFixed(4)}, Lng: ${longitude.toStringAsFixed(4)}';
+
+      // Check if current user is admin or rescuer for local notifications
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final currentUserRole =
+          currentUser != null ? await getCurrentUserRole() : null;
+
+      // Notify the original uploader
+      try {
+        await _sendFCMToUser(
+          userId: uploaderId,
+          title: '✅ Disaster Approved',
+          body:
+              'Your reported $disasterType at $locationText has been approved by rescuer $rescuerName. Emergency response is now active.',
+          data: {
+            'type': 'disaster_approved',
+            'disaster_type': disasterType,
+            'rescuer_name': rescuerName,
+            'latitude': latitude.toString(),
+            'longitude': longitude.toString(),
+            'media_url': mediaUrl ?? '',
+            'timestamp': DateTime.now().toIso8601String(),
+          },
+        );
+
+        // Show local notification if current user is the uploader
+        if (currentUser?.uid == uploaderId) {
+          await showLocalNotification(
+            title: '✅ Your Disaster Report Approved',
+            body:
+                'Rescuer $rescuerName approved your $disasterType report. Emergency response is now active.',
+            channelId: 'personal_alerts',
+            payload: 'disaster_approved:$disasterType:$latitude:$longitude',
+          );
+          debugPrint('📱 Local notification shown to uploader');
+        }
+
+        debugPrint('✅ Notified uploader about approval');
+      } catch (e) {
+        debugPrint('❌ Failed to notify uploader: $e');
+      }
+
+      // Notify all admins
+      final adminQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'admin')
+          .get();
+
+      int adminNotifiedCount = 0;
+      for (var adminDoc in adminQuery.docs) {
+        try {
+          await _sendFCMToUser(
+            userId: adminDoc.id,
+            title: '✅ Disaster Approved by Rescuer',
+            body:
+                '$rescuerName approved $disasterType reported by $uploaderName at $locationText. Emergency response is now active.',
+            data: {
+              'type': 'disaster_approved',
+              'disaster_type': disasterType,
+              'rescuer_name': rescuerName,
+              'uploader_name': uploaderName,
+              'latitude': latitude.toString(),
+              'longitude': longitude.toString(),
+              'media_url': mediaUrl ?? '',
+              'timestamp': DateTime.now().toIso8601String(),
+            },
+          );
+
+          // Show local notification if current user is an admin
+          if (currentUserRole == 'admin' && currentUser?.uid == adminDoc.id) {
+            await showLocalNotification(
+              title: '✅ Disaster Approved by Rescuer',
+              body:
+                  '$rescuerName approved $disasterType at $locationText. Response is active.',
+              channelId: 'admin_alerts',
+              payload: 'disaster_approved:$disasterType:$latitude:$longitude',
+            );
+            debugPrint('📱 Local notification shown to current admin user');
+          }
+
+          adminNotifiedCount++;
+          debugPrint('✅ Notified admin: ${adminDoc.id}');
+        } catch (e) {
+          debugPrint('❌ Failed to notify admin ${adminDoc.id}: $e');
+        }
+      }
+
+      debugPrint(
+          '✅ Successfully notified uploader and $adminNotifiedCount admins about disaster approval');
+    } catch (e) {
+      debugPrint('❌ Failed to notify about disaster approval: $e');
     }
   }
 }

@@ -9,6 +9,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as latLng2;
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart'; // ✅ Add share_plus for cross-app sharing
 import '../services/location_alerts_service.dart';
 import '../services/offline_mode_service.dart';
 import '../services/notification_service.dart';
@@ -63,7 +64,9 @@ class DisasterDetailsDialog extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${info.disasterType.toUpperCase()} DETECTED',
+                        info.disasterType.toLowerCase() == 'pending'
+                            ? 'MEDIA UPLOADED - ANALYZING...'
+                            : '${info.disasterType.toUpperCase()} DETECTED',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 18,
@@ -169,7 +172,16 @@ class DisasterDetailsDialog extends StatelessWidget {
                   child: ElevatedButton.icon(
                     onPressed: () {
                       Navigator.of(context).pop();
-                      // TODO: Navigate to full screen media viewer
+                      if (info.mediaUrl != null) {
+                        _showFullscreenMedia(context, info);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('No media available to view'),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                      }
                     },
                     icon: const Icon(Icons.fullscreen),
                     label: const Text('View Full'),
@@ -184,7 +196,7 @@ class DisasterDetailsDialog extends StatelessWidget {
                   child: ElevatedButton.icon(
                     onPressed: () {
                       Navigator.of(context).pop();
-                      // TODO: Share or report functionality
+                      _shareDisasterAlert(context, info);
                     },
                     icon: const Icon(Icons.share),
                     label: const Text('Share Alert'),
@@ -207,6 +219,10 @@ class DisasterDetailsDialog extends StatelessWidget {
     Color iconColor;
 
     switch (disasterType.toLowerCase()) {
+      case 'pending':
+        iconData = Icons.upload;
+        iconColor = Colors.orange;
+        break;
       case 'fire':
         iconData = Icons.local_fire_department;
         iconColor = Colors.red;
@@ -251,6 +267,218 @@ class DisasterDetailsDialog extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Icon(iconData, color: iconColor, size: 24),
+    );
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final difference = now.difference(timestamp);
+
+    if (difference.inMinutes < 60) {
+      return '${difference.inMinutes} minutes ago';
+    } else if (difference.inHours < 24) {
+      return '${difference.inHours} hours ago';
+    } else {
+      return '${difference.inDays} days ago';
+    }
+  }
+
+  // ✅ Show fullscreen media viewer
+  void _showFullscreenMedia(BuildContext context, DisasterMarkerInfo info) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => FullscreenMediaViewer(info: info),
+      ),
+    );
+  }
+
+  // ✅ Share disaster alert information
+  void _shareDisasterAlert(BuildContext context, DisasterMarkerInfo info) {
+    final disasterType = info.disasterType.toLowerCase() == 'pending'
+        ? 'Incident under analysis'
+        : info.disasterType.toUpperCase();
+
+    final shareText = '''
+🚨 RapidWarn Alert 🚨
+
+${disasterType} detected at:
+📍 Lat: ${info.position.latitude.toStringAsFixed(6)}
+📍 Lng: ${info.position.longitude.toStringAsFixed(6)}
+
+⏰ Time: ${_formatTimestamp(info.timestamp)}
+
+Stay safe and follow local emergency protocols.
+
+Shared via RapidWarn - Emergency Response App
+''';
+
+    // ✅ Use Share API to share across applications
+    Share.share(
+      shareText,
+      subject: '🚨 RapidWarn Emergency Alert: $disasterType',
+    );
+  }
+}
+
+// ✅ Fullscreen Media Viewer Widget
+class FullscreenMediaViewer extends StatelessWidget {
+  final DisasterMarkerInfo info;
+
+  const FullscreenMediaViewer({Key? key, required this.info}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black.withOpacity(0.7),
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text(
+          info.disasterType.toLowerCase() == 'pending'
+              ? 'Media Under Analysis'
+              : '${info.disasterType.toUpperCase()} Alert',
+          style: const TextStyle(color: Colors.white),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => _showMediaInfo(context),
+          ),
+        ],
+      ),
+      body: Center(
+        child: info.mediaUrl != null
+            ? InteractiveViewer(
+                panEnabled: true,
+                boundaryMargin: const EdgeInsets.all(20),
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Image.network(
+                  info.mediaUrl!,
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.broken_image,
+                              color: Colors.white54, size: 64),
+                          SizedBox(height: 16),
+                          Text(
+                            'Unable to load media',
+                            style:
+                                TextStyle(color: Colors.white54, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              )
+            : const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.image_not_supported,
+                        color: Colors.white54, size: 64),
+                    SizedBox(height: 16),
+                    Text(
+                      'No media available',
+                      style: TextStyle(color: Colors.white54, fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+      ),
+      floatingActionButton: info.mediaUrl != null
+          ? FloatingActionButton(
+              backgroundColor: Colors.blue,
+              onPressed: () => _shareMedia(context),
+              child: const Icon(Icons.share, color: Colors.white),
+            )
+          : null,
+    );
+  }
+
+  void _showMediaInfo(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text('Media Information',
+            style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildInfoRow(
+                'Type:',
+                info.disasterType.toLowerCase() == 'pending'
+                    ? 'Under Analysis'
+                    : info.disasterType.toUpperCase()),
+            _buildInfoRow('Location:',
+                'Lat: ${info.position.latitude.toStringAsFixed(6)}\nLng: ${info.position.longitude.toStringAsFixed(6)}'),
+            _buildInfoRow('Time:', _formatTimestamp(info.timestamp)),
+            if (info.mediaUrl != null)
+              _buildInfoRow('Media URL:', info.mediaUrl!),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close', style: TextStyle(color: Colors.blue)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 2),
+          Text(value, style: const TextStyle(color: Colors.white70)),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  void _shareMedia(BuildContext context) {
+    final disasterType = info.disasterType.toLowerCase() == 'pending'
+        ? 'Incident under analysis'
+        : info.disasterType.toUpperCase();
+
+    final shareText = '''
+🚨 RapidWarn Media Alert 🚨
+
+${disasterType} detected
+📍 Location: ${info.position.latitude.toStringAsFixed(6)}, ${info.position.longitude.toStringAsFixed(6)}
+⏰ Time: ${_formatTimestamp(info.timestamp)}
+
+${info.mediaUrl != null ? 'Media: ${info.mediaUrl}' : 'No media available'}
+
+Stay safe and follow local emergency protocols.
+
+Shared via RapidWarn - Emergency Response App
+''';
+
+    // ✅ Use Share API to share across applications
+    Share.share(
+      shareText,
+      subject: '🚨 RapidWarn Media Alert: ${disasterType}',
     );
   }
 
@@ -924,6 +1152,28 @@ class _MapHomeScreenState extends State<MapHomeScreen> {
 
     // ✅ Enhanced disaster type mapping (case-insensitive)
     final normalizedType = type.toLowerCase();
+
+    // ✅ Handle pending uploads with special styling
+    if (normalizedType == 'pending') {
+      return Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: Colors.orange,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: const Icon(Icons.upload, color: Colors.white, size: 24),
+      );
+    }
+
     final map = {
       "fire": "assets/icons/fire.png",
       "riot": "assets/icons/riot.png",
@@ -1119,6 +1369,9 @@ class _MapHomeScreenState extends State<MapHomeScreen> {
       final now = DateTime.now();
       final yesterday = now.subtract(const Duration(hours: 24));
 
+      final List<DisasterMarkerInfo> loadedAlerts = [];
+
+      // Load from disaster_alerts collection (existing system)
       final alertsQuery = await FirebaseFirestore.instance
           .collection('disaster_alerts')
           .where('timestamp', isGreaterThan: Timestamp.fromDate(yesterday))
@@ -1126,8 +1379,6 @@ class _MapHomeScreenState extends State<MapHomeScreen> {
           .orderBy('timestamp', descending: true)
           .limit(50)
           .get();
-
-      final List<DisasterMarkerInfo> loadedAlerts = [];
 
       for (var doc in alertsQuery.docs) {
         final data = doc.data();
@@ -1144,6 +1395,33 @@ class _MapHomeScreenState extends State<MapHomeScreen> {
           loadedAlerts.add(DisasterMarkerInfo(
             position: latLng2.LatLng(latitude, longitude),
             disasterType: disasterType,
+            mediaUrl: mediaUrl,
+            timestamp: timestamp,
+          ));
+        }
+      }
+
+      // ✅ Also load from insights collection (new media uploads)
+      final insightsQuery = await FirebaseFirestore.instance
+          .collection('insights')
+          .where('created_at', isGreaterThan: Timestamp.fromDate(yesterday))
+          .orderBy('created_at', descending: true)
+          .limit(50)
+          .get();
+
+      for (var doc in insightsQuery.docs) {
+        final data = doc.data();
+        final latitude = data['latitude']?.toDouble();
+        final longitude = data['longitude']?.toDouble();
+        final disasterType = data['disaster_type'] as String?;
+        final mediaUrl = data['media_url'] as String?;
+        final timestamp = (data['created_at'] as Timestamp?)?.toDate();
+
+        if (latitude != null && longitude != null && timestamp != null) {
+          loadedAlerts.add(DisasterMarkerInfo(
+            position: latLng2.LatLng(latitude, longitude),
+            disasterType: disasterType ??
+                'pending', // Show as pending if not classified yet
             mediaUrl: mediaUrl,
             timestamp: timestamp,
           ));
@@ -1300,36 +1578,63 @@ class _HomeScreenState extends State<HomeScreen> {
       final latitude = newRecord['latitude'] as double?;
       final longitude = newRecord['longitude'] as double?;
       final mediaUrl = newRecord['media_url'] as String?; // ✅ Get media URL
-      final uploaderId =
-          fb_auth.FirebaseAuth.instance.currentUser?.uid; // ✅ Get uploader ID
+      final recordUploaderId =
+          newRecord['uploader_id'] as String?; // ✅ Get record uploader ID
+      final currentUserId = fb_auth
+          .FirebaseAuth.instance.currentUser?.uid; // ✅ Get current user ID
 
       print(
           'DEBUG: Extracted values - Type: $disasterType, Lat: $latitude, Lng: $longitude, Media: $mediaUrl');
+      print(
+          'DEBUG: Record uploader: $recordUploaderId, Current user: $currentUserId');
 
       if (disasterType != null && latitude != null && longitude != null) {
         print(
             'DEBUG: Processing notification for $disasterType at $latitude, $longitude');
 
-        // Add notification for classified disaster
-        notificationHistory.insert(
-          0,
-          AppNotification(
-            title: "🤖 AI Classification Complete",
-            body:
-                "Your uploaded media has been classified as: $disasterType. Nearby users have been notified.",
-            timestamp: DateTime.now(),
-          ),
-        );
+        // ✅ Check if this is the current user's upload for personalized notification
+        final isMyUpload = recordUploaderId == currentUserId;
 
-        // ✅ Send ACTUAL system notification using NotificationService with media info
-        await _notificationService.sendDisasterAlert(
-          disasterType: disasterType,
-          latitude: latitude,
-          longitude: longitude,
-          location: 'your uploaded location',
-          mediaUrl: mediaUrl, // ✅ Pass media URL for preview
-          uploaderId: uploaderId, // ✅ Pass uploader ID
-        );
+        if (isMyUpload) {
+          // ✅ Personal notification for user's own upload
+          notificationHistory.insert(
+            0,
+            AppNotification(
+              title: "🎯 Your Upload Classified!",
+              body:
+                  "At your location, ${disasterType.toUpperCase()} has been detected and classified by our AI system.",
+              timestamp: DateTime.now(),
+            ),
+          );
+
+          // ✅ Send personalized system notification
+          await _notificationService.sendPersonalClassificationAlert(
+            disasterType: disasterType,
+            latitude: latitude,
+            longitude: longitude,
+          );
+        } else {
+          // ✅ General notification for nearby incidents
+          notificationHistory.insert(
+            0,
+            AppNotification(
+              title: "🚨 Nearby Incident Detected",
+              body:
+                  "${disasterType.toUpperCase()} detected in your area. Stay alert and follow safety protocols.",
+              timestamp: DateTime.now(),
+            ),
+          );
+
+          // ✅ Send general area alert
+          await _notificationService.sendDisasterAlert(
+            disasterType: disasterType,
+            latitude: latitude,
+            longitude: longitude,
+            location: 'nearby area',
+            mediaUrl: mediaUrl,
+            uploaderId: recordUploaderId,
+          );
+        }
 
         debugPrint('✅ Disaster alert sent through NotificationService');
 
@@ -1346,21 +1651,27 @@ class _HomeScreenState extends State<HomeScreen> {
           print('DEBUG: Map state is null!');
         }
 
-        // Show snackbar notification
+        // ✅ Show different snackbar messages based on ownership
         if (mounted) {
           print('DEBUG: Showing snackbar notification...');
+          final message = isMyUpload
+              ? '🎯 Your upload classified as ${disasterType.toUpperCase()}! Thank you for reporting.'
+              : '🚨 ${disasterType.toUpperCase()} detected nearby. Stay safe!';
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                  '🤖 AI classified your upload as: $disasterType! Map marker updated.'),
-              backgroundColor:
-                  Colors.green, // Success color for AI classification
+              content: Text(message),
+              backgroundColor: isMyUpload ? Colors.green : Colors.orange,
               duration: const Duration(seconds: 5),
               action: SnackBarAction(
                 label: 'VIEW',
                 textColor: Colors.white,
                 onPressed: () {
-                  // Navigate to notifications or alerts screen
+                  // Navigate to map location
+                  final mapState = _mapKey.currentState;
+                  if (mapState != null) {
+                    mapState.moveTo(latLng2.LatLng(latitude, longitude), 15);
+                  }
                 },
               ),
             ),
@@ -1585,10 +1896,16 @@ class _HomeScreenState extends State<HomeScreen> {
               content: Text(
                   'Report submitted successfully! Media saved to bucket and insights table.')),
         );
-        // Center the map on upload location
+        // Center the map on upload location and add immediate marker
         final state = _mapKey.currentState;
         if (state != null) {
           state.moveTo(latLng, 15);
+          // ✅ Add immediate marker for uploaded media (before AI classification)
+          state.updateDisasterMarkerWithMedia(
+            latLng,
+            'pending', // Temporary type until AI classifies
+            publicUrl,
+          );
         }
       }
       debugPrint('🎉 Media upload and report process completed successfully');
@@ -1672,6 +1989,69 @@ class _HomeScreenState extends State<HomeScreen> {
         'created_at': DateTime.now().toIso8601String(),
       });
       debugPrint('✅ Supabase insert completed successfully');
+
+      // 3. ✅ Create pending disaster alert for admin/rescuer approval
+      if (currentUser?.uid != null) {
+        debugPrint('📋 Creating pending disaster alert for approval...');
+
+        // Get user info for the alert
+        String uploaderName = 'Unknown User';
+        String uploaderEmail = 'No email';
+        try {
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(currentUser!.uid)
+              .get();
+
+          if (userDoc.exists) {
+            final userData = userDoc.data()!;
+            uploaderName = userData['name'] ??
+                userData['displayName'] ??
+                userData['email']?.split('@')[0] ??
+                'Unknown User';
+            uploaderEmail = userData['email'] ?? 'No email';
+          }
+        } catch (e) {
+          debugPrint('⚠️ Could not fetch user info: $e');
+        }
+
+        // Create pending disaster alert in Firestore
+        debugPrint(
+            '🏗️ Creating pending disaster alert with user: $uploaderName ($uploaderEmail)');
+        final pendingAlert =
+            await FirebaseFirestore.instance.collection('disaster_alerts').add({
+          'disaster_type': 'unclassified', // Will be updated by ML
+          'latitude': latitude,
+          'longitude': longitude,
+          'location':
+              'Lat: ${latitude.toStringAsFixed(4)}, Lng: ${longitude.toStringAsFixed(4)}',
+          'media_url': mediaUrl,
+          'photo_url': mediaUrl,
+          'uploader_id': currentUser!.uid,
+          'uploader_name': uploaderName,
+          'uploader_email': uploaderEmail,
+          'timestamp': FieldValue.serverTimestamp(),
+          'source': 'user_upload',
+          'status': 'pending', // Waiting for admin/rescuer approval
+          'severity': 'medium', // Default until classified
+          'intensity': 'medium',
+          'notified_users': [],
+          'alert_radius': 5000,
+        });
+        debugPrint(
+            '✅ Pending disaster alert created for approval with ID: ${pendingAlert.id}');
+
+        // 4. ✅ Notify admins and rescuers about the new disaster upload
+        debugPrint(
+            '📢 Notifying admins and rescuers about new disaster upload...');
+        await _notificationService.notifyAdminsAndRescuersOnUpload(
+          latitude: latitude,
+          longitude: longitude,
+          uploaderId: currentUser.uid,
+          mediaUrl: mediaUrl,
+        );
+        debugPrint('✅ Admin and rescuer notifications sent');
+      }
     } catch (e) {
       debugPrint('❌ Database insert error: $e');
       // Re-throw to handle in calling function
@@ -1931,7 +2311,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(180),
+        preferredSize:
+            const Size.fromHeight(200), // Increased to 200 for more space
         child: Container(
           decoration: const BoxDecoration(
             color: Color(0xFF1E2328), // Same simple dark color
@@ -1939,7 +2320,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           child: SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 20), // Better balance for full name display
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -1973,43 +2356,61 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 18),
                   Expanded(
+                    flex: 3, // Give more space to the text area
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           "Hello, ${user?.displayName ?? 'User'} 👋",
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
-                            fontSize: 20,
+                            fontSize: 18,
                             letterSpacing: 0.2,
                           ),
+                          // Remove maxLines and overflow to show full name
                         ),
+                        const SizedBox(height: 2), // Small spacing
                         if (user?.email != null)
                           Text(
                             user!.email!,
                             style: const TextStyle(
                               color: Colors.white70,
-                              fontSize: 14,
+                              fontSize: 11, // Slightly smaller for email
                               fontWeight: FontWeight.w400,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow
+                                .ellipsis, // Only email can be truncated
                           ),
                       ],
                     ),
                   ),
-                  _notificationBell(context),
-                  // Debug: Add database test button
-                  IconButton(
-                    icon:
-                        const Icon(Icons.storage, color: Colors.blue, size: 22),
-                    onPressed: _testDatabaseConnectivity,
-                    tooltip: 'Test Database',
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.logout,
-                        color: Color(0xFFFA7070), size: 26),
-                    onPressed: _logout,
+                  // Compact action buttons
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _notificationBell(context),
+                      IconButton(
+                        icon: const Icon(Icons.storage,
+                            color: Colors.blue, size: 20),
+                        onPressed: _testDatabaseConnectivity,
+                        tooltip: 'Test DB',
+                        padding: const EdgeInsets.all(8),
+                        constraints:
+                            const BoxConstraints(minWidth: 36, minHeight: 36),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.logout,
+                            color: Color(0xFFFA7070), size: 22),
+                        onPressed: _logout,
+                        padding: const EdgeInsets.all(8),
+                        constraints:
+                            const BoxConstraints(minWidth: 36, minHeight: 36),
+                      ),
+                    ],
                   ),
                 ],
               ),

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -80,36 +79,41 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         final docs = snapshot.data!;
         final totalReports = docs.length;
         final fireReports = docs
-            .where((doc) => (doc['disaster_type'] ?? '').toString().toLowerCase() == 'fire')
+            .where((doc) =>
+                (doc['disaster_type'] ?? '').toString().toLowerCase() == 'fire')
             .length;
         final accidents = docs
-            .where((doc) => (doc['disaster_type'] ?? '').toString().toLowerCase() == 'accident')
+            .where((doc) =>
+                (doc['disaster_type'] ?? '').toString().toLowerCase() ==
+                'accident')
             .length;
         final stampedes = docs
-            .where((doc) => (doc['disaster_type'] ?? '').toString().toLowerCase() == 'stampede')
+            .where((doc) =>
+                (doc['disaster_type'] ?? '').toString().toLowerCase() ==
+                'stampede')
             .length;
 
         return Row(
           children: [
             Expanded(
-              flex: 1,
-              child: _buildSummaryCard(
-                  'Total Reports', totalReports.toString(), Colors.blue)),
-            const SizedBox(width: 12),
+                flex: 1,
+                child: _buildSummaryCard(
+                    'Total', totalReports.toString(), Colors.blue)),
+            const SizedBox(width: 8), // Reduced spacing
             Expanded(
-              flex: 1,
-              child: _buildSummaryCard(
-                  'Fire Incidents', fireReports.toString(), const Color(0xFFFF4444))),
-            const SizedBox(width: 12),
+                flex: 1,
+                child: _buildSummaryCard(
+                    'Fire', fireReports.toString(), const Color(0xFFFF4444))),
+            const SizedBox(width: 8), // Reduced spacing
             Expanded(
-              flex: 1,
-              child: _buildSummaryCard(
-                  'Accidents', accidents.toString(), const Color(0xFFFFA726))),
-            const SizedBox(width: 12),
+                flex: 1,
+                child: _buildSummaryCard('Accidents', accidents.toString(),
+                    const Color(0xFFFFA726))),
+            const SizedBox(width: 8), // Reduced spacing
             Expanded(
-              flex: 1,
-              child: _buildSummaryCard(
-                  'Stampede', stampedes.toString(), const Color(0xFF9C27B0))),
+                flex: 1,
+                child: _buildSummaryCard(
+                    'Stampede', stampedes.toString(), const Color(0xFF9C27B0))),
           ],
         );
       },
@@ -118,27 +122,40 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Widget _buildSummaryCard(String title, String value, Color color) {
     return Container(
-      height: 90,
-      padding: const EdgeInsets.all(16),
+      height: 75, // Reduced from 90 to 75
+      padding: const EdgeInsets.all(12), // Reduced from 16 to 12
       decoration: BoxDecoration(
         color: const Color(0xFF2A2D36),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8), // Reduced radius
         border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisSize: MainAxisSize.min, // Prevent overflow
         children: [
-          Text(
-            title,
-            style: const TextStyle(color: Colors.white70, fontSize: 11),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+          Flexible(
+            // Allow text to shrink if needed
+            child: Text(
+              title,
+              style: const TextStyle(
+                  color: Colors.white70, fontSize: 9), // Reduced from 11 to 9
+              maxLines: 1, // Single line only
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-          Text(
-            value,
-            style: TextStyle(
-                color: color, fontSize: 24, fontWeight: FontWeight.bold),
+          const SizedBox(height: 4), // Small spacing
+          Flexible(
+            // Allow value to shrink if needed
+            child: Text(
+              value,
+              style: TextStyle(
+                  color: color,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold), // Reduced from 24 to 20
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
@@ -151,8 +168,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           4,
           (index) => Expanded(
                 child: Container(
-                  margin: EdgeInsets.only(right: index < 3 ? 12 : 0),
-                  padding: const EdgeInsets.all(16),
+                  margin: EdgeInsets.only(
+                      right: index < 3 ? 8 : 0), // Reduced from 12 to 8
+                  height: 75, // Match the summary card height
+                  padding: const EdgeInsets.all(12), // Reduced from 16 to 12
                   decoration: BoxDecoration(
                     color: const Color(0xFF2A2D36),
                     borderRadius: BorderRadius.circular(12),
@@ -218,7 +237,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               final typeData = <String, int>{};
 
               for (var doc in docs) {
-                final type = (doc['disaster_type'] ?? 'normal').toString().toLowerCase();
+                final type =
+                    (doc['disaster_type'] ?? 'normal').toString().toLowerCase();
                 typeData[type] = (typeData[type] ?? 0) + 1;
               }
 
@@ -238,7 +258,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       final percentage = (entry.value / docs.length * 100);
                       return PieChartSectionData(
                         value: entry.value.toDouble(),
-                        title: '${entry.value}\n${percentage.toStringAsFixed(1)}%',
+                        title:
+                            '${entry.value}\n${percentage.toStringAsFixed(1)}%',
                         color: color,
                         radius: 80,
                         titleStyle: const TextStyle(
@@ -265,8 +286,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget _buildChartLegend() {
     final legendItems = [
       {'type': 'fire', 'color': const Color(0xFFFF4444), 'label': 'Fire'},
-      {'type': 'accident', 'color': const Color(0xFFFFA726), 'label': 'Accident'},
-      {'type': 'stampede', 'color': const Color(0xFF9C27B0), 'label': 'Stampede'},
+      {
+        'type': 'accident',
+        'color': const Color(0xFFFFA726),
+        'label': 'Accident'
+      },
+      {
+        'type': 'stampede',
+        'color': const Color(0xFF9C27B0),
+        'label': 'Stampede'
+      },
       {'type': 'normal', 'color': const Color(0xFF4CAF50), 'label': 'Normal'},
     ];
 
@@ -337,7 +366,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               final docs = snapshot.data!;
               final lineData = _processDisasterLineDataFromSupabase(docs);
 
-              if (lineData['fire']!.isEmpty && lineData['accident']!.isEmpty && lineData['stampede']!.isEmpty) {
+              if (lineData['fire']!.isEmpty &&
+                  lineData['accident']!.isEmpty &&
+                  lineData['stampede']!.isEmpty) {
                 return const Center(
                   child: Text('No data available',
                       style: TextStyle(color: Colors.grey)),
@@ -345,11 +376,28 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               }
 
               // Calculate max value for Y-axis
-              final maxFireValue = lineData['fire'].isEmpty ? 0.0 : (lineData['fire'] as List<FlSpot>).map((e) => e.y).reduce((a, b) => a > b ? a : b);
-              final maxAccidentValue = lineData['accident'].isEmpty ? 0.0 : (lineData['accident'] as List<FlSpot>).map((e) => e.y).reduce((a, b) => a > b ? a : b);
-              final maxStampedeValue = lineData['stampede'].isEmpty ? 0.0 : (lineData['stampede'] as List<FlSpot>).map((e) => e.y).reduce((a, b) => a > b ? a : b);
-              final maxValue = [maxFireValue, maxAccidentValue, maxStampedeValue].reduce((a, b) => a > b ? a : b);
-              final yInterval = maxValue <= 10 ? 5.0 : (maxValue <= 50 ? 10.0 : 20.0);
+              final maxFireValue = lineData['fire'].isEmpty
+                  ? 0.0
+                  : (lineData['fire'] as List<FlSpot>)
+                      .map((e) => e.y)
+                      .reduce((a, b) => a > b ? a : b);
+              final maxAccidentValue = lineData['accident'].isEmpty
+                  ? 0.0
+                  : (lineData['accident'] as List<FlSpot>)
+                      .map((e) => e.y)
+                      .reduce((a, b) => a > b ? a : b);
+              final maxStampedeValue = lineData['stampede'].isEmpty
+                  ? 0.0
+                  : (lineData['stampede'] as List<FlSpot>)
+                      .map((e) => e.y)
+                      .reduce((a, b) => a > b ? a : b);
+              final maxValue = [
+                maxFireValue,
+                maxAccidentValue,
+                maxStampedeValue
+              ].reduce((a, b) => a > b ? a : b);
+              final yInterval =
+                  maxValue <= 10 ? 5.0 : (maxValue <= 50 ? 10.0 : 20.0);
 
               return SizedBox(
                 height: 250,
@@ -419,7 +467,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       bottomTitles: AxisTitles(
                         sideTitles: SideTitles(
                           showTitles: true,
-                          reservedSize: 30,
+                          reservedSize: 40, // Increased to prevent overflow
                           getTitlesWidget: (value, meta) {
                             final labels = lineData['labels'] as List<String>;
                             final index = value.toInt();
@@ -428,11 +476,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                               // Only show non-empty labels (we already set empty strings for skipped labels)
                               if (label.isNotEmpty) {
                                 return Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    label,
-                                    style: const TextStyle(
-                                        color: Colors.white70, fontSize: 9),
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: SizedBox(
+                                    width:
+                                        40, // Fixed width to prevent overflow
+                                    child: Text(
+                                      label,
+                                      style: const TextStyle(
+                                          color: Colors.white70, fontSize: 8),
+                                      textAlign: TextAlign.center,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                 );
                               }
@@ -611,9 +665,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               }
 
               // Calculate max value and appropriate interval
-              final maxValue = barData.map((e) => e['fire'] + e['accident'] + e['stampede'] + e['normal']).reduce((a, b) => a > b ? a : b);
+              final maxValue = barData
+                  .map((e) =>
+                      e['fire'] + e['accident'] + e['stampede'] + e['normal'])
+                  .reduce((a, b) => a > b ? a : b);
               final maxY = maxValue * 1.2;
-              final yInterval = maxValue <= 10 ? 5.0 : (maxValue <= 50 ? 10.0 : 20.0);
+              final yInterval =
+                  maxValue <= 10 ? 5.0 : (maxValue <= 50 ? 10.0 : 20.0);
 
               return SizedBox(
                 height: 250,
@@ -659,17 +717,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       bottomTitles: AxisTitles(
                         sideTitles: SideTitles(
                           showTitles: true,
-                          reservedSize: 35,
+                          reservedSize: 45, // Increased to prevent overflow
                           getTitlesWidget: (value, meta) {
                             final index = value.toInt();
                             if (index >= 0 && index < barData.length) {
                               return Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  barData[index]['label'],
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 10,
+                                padding: const EdgeInsets.only(top: 4),
+                                child: SizedBox(
+                                  width: 35, // Fixed width to prevent overflow
+                                  child: Text(
+                                    barData[index]['label'],
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 8,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                               );
@@ -809,147 +872,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildHeatmapSection() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2A2D36),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Activity Heatmap',
-            style: TextStyle(
-                color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Hour of Day vs Day of Week',
-            style: TextStyle(color: Colors.white70, fontSize: 14),
-          ),
-          const SizedBox(height: 16),
-          _buildHourlyHeatmap(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHourlyHeatmap() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _getFilteredStream(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(
-              child: CircularProgressIndicator(color: Colors.orange));
-        }
-
-        final docs = snapshot.data!.docs;
-        final heatmapData = _processHeatmapData(docs);
-
-        return Column(
-          children: List.generate(7, (dayIndex) {
-            final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 30,
-                    child: Text(
-                      dayNames[dayIndex],
-                      style:
-                          const TextStyle(color: Colors.white70, fontSize: 10),
-                    ),
-                  ),
-                  ...List.generate(24, (hourIndex) {
-                    final intensity = heatmapData[dayIndex][hourIndex];
-                    final color = _getHeatmapColor(intensity);
-
-                    return Container(
-                      width: 8,
-                      height: 20,
-                      margin: const EdgeInsets.only(right: 1),
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    );
-                  }),
-                ],
-              ),
-            );
-          }),
-        );
-      },
-    );
-  }
-
-  Widget _buildTrendAnalysis() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2A2D36),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Trend Analysis',
-            style: TextStyle(
-                color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          StreamBuilder<QuerySnapshot>(
-            stream: _getFilteredStream(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Center(
-                    child: CircularProgressIndicator(color: Colors.orange));
-              }
-
-              final docs = snapshot.data!.docs;
-              final insights = _generateInsights(docs);
-
-              return Column(
-                children: insights
-                    .map((insight) => _buildInsightCard(insight))
-                    .toList(),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInsightCard(Map<String, dynamic> insight) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B2028),
-        borderRadius: BorderRadius.circular(8),
-        border: Border(left: BorderSide(color: insight['color'], width: 4)),
-      ),
-      child: Row(
-        children: [
-          Icon(insight['icon'], color: insight['color'], size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              insight['text'],
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<List<Map<String, dynamic>>> _getFilteredData() async {
     final now = DateTime.now();
     DateTime startDate;
@@ -980,12 +902,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           .order('created_at', ascending: false);
 
       List<Map<String, dynamic>> allData = [];
-      
+
       if (response.isNotEmpty) {
         allData = List<Map<String, dynamic>>.from(response);
       }
 
-      print('✅ Fetched ${allData.length} disaster reports from Supabase insights table');
+      print(
+          '✅ Fetched ${allData.length} disaster reports from Supabase insights table');
       return allData;
     } catch (e) {
       print('❌ Error fetching analytics data: $e');
@@ -1010,7 +933,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   // Process data for disaster line chart (3 separate lines)
   // Process Supabase data for line chart
-  Map<String, dynamic> _processDisasterLineDataFromSupabase(List<Map<String, dynamic>> docs) {
+  Map<String, dynamic> _processDisasterLineDataFromSupabase(
+      List<Map<String, dynamic>> docs) {
     final fireData = <DateTime, int>{};
     final accidentData = <DateTime, int>{};
     final stampedeData = <DateTime, int>{};
@@ -1023,7 +947,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         // Group by day only
         final dayKey = DateTime(dateTime.year, dateTime.month, dateTime.day);
         final type = (doc['disaster_type'] ?? '').toString().toLowerCase();
-        
+
         if (type == 'fire') {
           fireData[dayKey] = (fireData[dayKey] ?? 0) + 1;
         } else if (type == 'accident') {
@@ -1039,7 +963,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     allDates.addAll(fireData.keys);
     allDates.addAll(accidentData.keys);
     allDates.addAll(stampedeData.keys);
-    
+
     if (allDates.isEmpty) {
       return {
         'fire': <FlSpot>[],
@@ -1055,22 +979,25 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final List<DateTime> dateRange;
     if (sortedDates.length <= 1) {
       // If 1 or 0 dates, create a 7-day range
-      final referenceDate = sortedDates.isEmpty ? DateTime.now() : sortedDates[0];
+      final referenceDate =
+          sortedDates.isEmpty ? DateTime.now() : sortedDates[0];
       dateRange = [];
       for (int i = -6; i <= 0; i++) {
-        dateRange.add(DateTime(referenceDate.year, referenceDate.month, referenceDate.day + i));
+        dateRange.add(DateTime(
+            referenceDate.year, referenceDate.month, referenceDate.day + i));
       }
     } else if (sortedDates.length < 5) {
       // If less than 5 dates, fill in the gaps
       final firstDate = sortedDates.first;
       final lastDate = sortedDates.last;
       final daysDiff = lastDate.difference(firstDate).inDays;
-      
+
       if (daysDiff < 6) {
         // Extend to 7 days
         dateRange = [];
         for (int i = 0; i < 7; i++) {
-          dateRange.add(DateTime(firstDate.year, firstDate.month, firstDate.day + i));
+          dateRange.add(
+              DateTime(firstDate.year, firstDate.month, firstDate.day + i));
         }
       } else {
         dateRange = sortedDates;
@@ -1081,21 +1008,28 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     // Create labels - always show date format "dd MMM"
     final labels = <String>[];
-    
-    // Calculate interval to show ~5-6 labels maximum
+
+    // Calculate interval to show maximum 4-5 labels to avoid overcrowding
     int labelInterval;
-    if (dateRange.length <= 7) {
-      labelInterval = 1; // Show all labels
-    } else if (dateRange.length <= 14) {
+    if (dateRange.length <= 5) {
+      labelInterval = 1; // Show all labels for small datasets
+    } else if (dateRange.length <= 10) {
       labelInterval = 2; // Show every 2nd label
+    } else if (dateRange.length <= 20) {
+      labelInterval = 4; // Show every 4th label
     } else {
-      labelInterval = (dateRange.length / 6).ceil(); // Show ~6 labels
+      labelInterval = (dateRange.length / 4).ceil(); // Show max 4 labels
     }
-    
+
     for (int i = 0; i < dateRange.length; i++) {
-      // Show first, last, and evenly spaced labels
-      if (i == 0 || i == dateRange.length - 1 || i % labelInterval == 0) {
-        labels.add(DateFormat('dd MMM').format(dateRange[i]));
+      // Show first, last, and evenly spaced labels with better spacing
+      if (i == 0 ||
+          i == dateRange.length - 1 ||
+          (i % labelInterval == 0 &&
+              i > labelInterval &&
+              i < dateRange.length - labelInterval)) {
+        // Use shorter date format to prevent overlap
+        labels.add(DateFormat('dd/MM').format(dateRange[i]));
       } else {
         labels.add(''); // Empty label
       }
@@ -1109,8 +1043,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     for (int i = 0; i < dateRange.length; i++) {
       final date = dateRange[i];
       fireSpots.add(FlSpot(i.toDouble(), (fireData[date] ?? 0).toDouble()));
-      accidentSpots.add(FlSpot(i.toDouble(), (accidentData[date] ?? 0).toDouble()));
-      stampedeSpots.add(FlSpot(i.toDouble(), (stampedeData[date] ?? 0).toDouble()));
+      accidentSpots
+          .add(FlSpot(i.toDouble(), (accidentData[date] ?? 0).toDouble()));
+      stampedeSpots
+          .add(FlSpot(i.toDouble(), (stampedeData[date] ?? 0).toDouble()));
     }
 
     return {
@@ -1122,7 +1058,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   // Process Supabase data for monthly bar chart
-  List<Map<String, dynamic>> _processMonthlyBarDataFromSupabase(List<Map<String, dynamic>> docs) {
+  List<Map<String, dynamic>> _processMonthlyBarDataFromSupabase(
+      List<Map<String, dynamic>> docs) {
     final monthlyData = <DateTime, Map<String, double>>{};
 
     for (var doc in docs) {
@@ -1131,7 +1068,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         final date = DateTime.parse(createdAt);
         // Use first day of month as key
         final monthKey = DateTime(date.year, date.month, 1);
-        final type = (doc['disaster_type'] ?? 'normal').toString().toLowerCase();
+        final type =
+            (doc['disaster_type'] ?? 'normal').toString().toLowerCase();
 
         if (!monthlyData.containsKey(monthKey)) {
           monthlyData[monthKey] = {
@@ -1143,13 +1081,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         }
 
         if (type == 'fire') {
-          monthlyData[monthKey]!['fire'] = (monthlyData[monthKey]!['fire'] ?? 0) + 1;
+          monthlyData[monthKey]!['fire'] =
+              (monthlyData[monthKey]!['fire'] ?? 0) + 1;
         } else if (type == 'accident') {
-          monthlyData[monthKey]!['accident'] = (monthlyData[monthKey]!['accident'] ?? 0) + 1;
+          monthlyData[monthKey]!['accident'] =
+              (monthlyData[monthKey]!['accident'] ?? 0) + 1;
         } else if (type == 'stampede') {
-          monthlyData[monthKey]!['stampede'] = (monthlyData[monthKey]!['stampede'] ?? 0) + 1;
+          monthlyData[monthKey]!['stampede'] =
+              (monthlyData[monthKey]!['stampede'] ?? 0) + 1;
         } else {
-          monthlyData[monthKey]!['normal'] = (monthlyData[monthKey]!['normal'] ?? 0) + 1;
+          monthlyData[monthKey]!['normal'] =
+              (monthlyData[monthKey]!['normal'] ?? 0) + 1;
         }
       }
     }
@@ -1158,7 +1100,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final now = DateTime.now();
     final sixMonthsAgo = DateTime(now.year, now.month - 5, 1);
     final allMonths = <DateTime>[];
-    
+
     for (int i = 0; i < 6; i++) {
       final month = DateTime(sixMonthsAgo.year, sixMonthsAgo.month + i, 1);
       allMonths.add(month);
@@ -1166,15 +1108,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     // Convert to list format with proper labels
     final result = allMonths.map((month) {
-      final data = monthlyData[month] ?? {
-        'fire': 0.0,
-        'accident': 0.0,
-        'stampede': 0.0,
-        'normal': 0.0,
-      };
-      
+      final data = monthlyData[month] ??
+          {
+            'fire': 0.0,
+            'accident': 0.0,
+            'stampede': 0.0,
+            'normal': 0.0,
+          };
+
       return {
-        'label': DateFormat('MMM yy').format(month),
+        'label': DateFormat('MMM')
+            .format(month), // Shorter format to prevent overlap
         'fire': data['fire']!,
         'accident': data['accident']!,
         'stampede': data['stampede']!,
@@ -1183,136 +1127,5 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }).toList();
 
     return result;
-  }
-
-  List<List<double>> _processHeatmapData(List<QueryDocumentSnapshot> docs) {
-    // Initialize 7x24 matrix (7 days, 24 hours)
-    final heatmap = List.generate(7, (_) => List.filled(24, 0.0));
-
-    for (var doc in docs) {
-      final timestamp = doc['timestamp'] as Timestamp?;
-      if (timestamp != null) {
-        final date = timestamp.toDate();
-        final dayOfWeek = (date.weekday - 1) % 7; // Monday = 0
-        final hour = date.hour;
-        heatmap[dayOfWeek][hour] += 1.0;
-      }
-    }
-
-    // Normalize to 0-1 range
-    final maxValue =
-        heatmap.expand((row) => row).reduce((a, b) => a > b ? a : b);
-    if (maxValue > 0) {
-      for (int i = 0; i < 7; i++) {
-        for (int j = 0; j < 24; j++) {
-          heatmap[i][j] = heatmap[i][j] / maxValue;
-        }
-      }
-    }
-
-    return heatmap;
-  }
-
-  Color _getHeatmapColor(double intensity) {
-    if (intensity == 0) return Colors.grey[800]!;
-    return Color.lerp(Colors.blue[900]!, Colors.red, intensity)!;
-  }
-
-  List<Map<String, dynamic>> _generateInsights(
-      List<QueryDocumentSnapshot> docs) {
-    final insights = <Map<String, dynamic>>[];
-
-    if (docs.isEmpty) {
-      insights.add({
-        'icon': Icons.info,
-        'color': Colors.blue,
-        'text': 'No reports in the selected time period.',
-      });
-      return insights;
-    }
-
-    // Most common disaster type
-    final typeCount = <String, int>{};
-    for (var doc in docs) {
-      final type = doc['prediction'] ?? 'unknown';
-      typeCount[type] = (typeCount[type] ?? 0) + 1;
-    }
-
-    if (typeCount.isNotEmpty) {
-      final mostCommon =
-          typeCount.entries.reduce((a, b) => a.value > b.value ? a : b);
-      insights.add({
-        'icon': Icons.trending_up,
-        'color': Colors.orange,
-        'text':
-            'Most reported: ${mostCommon.key} (${mostCommon.value} reports)',
-      });
-    }
-
-    // Peak hour analysis
-    final hourCount = <int, int>{};
-    for (var doc in docs) {
-      final timestamp = doc['timestamp'] as Timestamp?;
-      if (timestamp != null) {
-        final hour = timestamp.toDate().hour;
-        hourCount[hour] = (hourCount[hour] ?? 0) + 1;
-      }
-    }
-
-    if (hourCount.isNotEmpty) {
-      final peakHour =
-          hourCount.entries.reduce((a, b) => a.value > b.value ? a : b);
-      insights.add({
-        'icon': Icons.schedule,
-        'color': Colors.green,
-        'text':
-            'Peak reporting hour: ${peakHour.key}:00 (${peakHour.value} reports)',
-      });
-    }
-
-    // Average confidence
-    final confidences =
-        docs.map((doc) => doc['confidence'] ?? 0.0).cast<double>();
-    if (confidences.isNotEmpty) {
-      final avgConfidence =
-          confidences.reduce((a, b) => a + b) / confidences.length;
-      insights.add({
-        'icon': Icons.analytics,
-        'color': Colors.purple,
-        'text':
-            'Average ML confidence: ${(avgConfidence * 100).toStringAsFixed(1)}%',
-      });
-    }
-
-    return insights;
-  }
-
-  Stream<QuerySnapshot> _getFilteredStream() {
-    final now = DateTime.now();
-    DateTime startDate;
-
-    switch (_selectedTimeRange) {
-      case '24 hours':
-        startDate = now.subtract(const Duration(hours: 24));
-        break;
-      case '7 days':
-        startDate = now.subtract(const Duration(days: 7));
-        break;
-      case '30 days':
-        startDate = now.subtract(const Duration(days: 30));
-        break;
-      case '90 days':
-        startDate = now.subtract(const Duration(days: 90));
-        break;
-      default:
-        startDate = now.subtract(const Duration(days: 7));
-    }
-
-    // Return Firestore stream from 'insights' collection where disasters are stored
-    return FirebaseFirestore.instance
-        .collection('insights')
-        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-        .orderBy('timestamp', descending: true)
-        .snapshots();
   }
 }

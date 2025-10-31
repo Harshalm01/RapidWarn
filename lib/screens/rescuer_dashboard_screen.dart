@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as latLng2;
 import 'package:geolocator/geolocator.dart';
@@ -8,7 +9,7 @@ import '../services/notification_service.dart';
 
 class RescuerDashboardScreen extends StatefulWidget {
   final String rescuerEmail;
-  
+
   const RescuerDashboardScreen({
     Key? key,
     required this.rescuerEmail,
@@ -32,7 +33,7 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
     super.initState();
     _determinePositionAndMove();
     _loadActiveDisasters();
-    
+
     // Listen for real-time updates
     _listenToDisasterUpdates();
   }
@@ -90,15 +91,16 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
   Future<void> _loadActiveDisasters() async {
     try {
       print('🔍 Starting to load disasters from Firestore...');
-      
+
       // ✅ Try to load ALL disasters first (no status filter) to debug
       QuerySnapshot snapshot;
       try {
         snapshot = await FirebaseFirestore.instance
             .collection('disaster_alerts')
             .get();
-        print('📊 Total documents in disaster_alerts collection: ${snapshot.docs.length}');
-        
+        print(
+            '📊 Total documents in disaster_alerts collection: ${snapshot.docs.length}');
+
         // If we got documents, filter by status in code
         if (snapshot.docs.isNotEmpty) {
           print('🔍 Checking status of each document...');
@@ -110,11 +112,10 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
         }
       } catch (e) {
         print('❌ Error fetching all documents: $e');
-        // Fallback to status filter
+        // Fallback to status filter - include both pending and active
         snapshot = await FirebaseFirestore.instance
             .collection('disaster_alerts')
-            .where('status', isEqualTo: 'active')
-            .get();
+            .where('status', whereIn: ['pending', 'active']).get();
       }
 
       print('📊 Documents to process: ${snapshot.docs.length}');
@@ -145,16 +146,17 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
             print('⚠️ Doc ${doc.id} has null data');
             continue;
           }
-          
+
           data['id'] = doc.id;
-          
+
           final lat = data['latitude'] as double?;
           final lng = data['longitude'] as double?;
-          final type = data['type'] as String? ?? 
-                      data['disaster_type'] as String? ?? 
-                      data['disasterType'] as String?;
+          final type = data['type'] as String? ??
+              data['disaster_type'] as String? ??
+              data['disasterType'] as String?;
 
-          print('📍 Doc ${doc.id}: type="$type", lat=$lat, lng=$lng, status=${data['status']}');
+          print(
+              '📍 Doc ${doc.id}: type="$type", lat=$lat, lng=$lng, status=${data['status']}');
 
           // ✅ TEMPORARILY SHOW ALL - FOR DEBUGGING
           // TODO: Re-enable filter after testing
@@ -174,7 +176,7 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
           if (lat != null && lng != null) {
             print('✅ Adding disaster: $type at ($lat, $lng)');
             _disasters.add(data);
-            
+
             _disasterMarkers.add(
               Marker(
                 point: latLng2.LatLng(lat, lng),
@@ -194,11 +196,13 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
             );
             addedCount++;
           } else {
-            print('⚠️ Skipping disaster with null coordinates: lat=$lat, lng=$lng');
+            print(
+                '⚠️ Skipping disaster with null coordinates: lat=$lat, lng=$lng');
           }
         }
 
-        print('📊 SUMMARY: Total=$totalCount, Filtered=$filteredCount, Added=$addedCount, Final=${_disasters.length}');
+        print(
+            '📊 SUMMARY: Total=$totalCount, Filtered=$filteredCount, Added=$addedCount, Final=${_disasters.length}');
         if (_disasters.isEmpty) {
           print('⚠️ No fire/accident/stampede disasters found in database');
         }
@@ -211,7 +215,8 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
 
   Widget _buildDisasterMarkerChild(String? type) {
     if (type == null) {
-      return const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 50);
+      return const Icon(Icons.warning_amber_rounded,
+          color: Colors.red, size: 50);
     }
 
     final normalizedType = type.toLowerCase().trim();
@@ -315,11 +320,13 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
           .collection('disaster_alerts')
           .doc(disasterId)
           .get();
-      
+
       final disasterData = disasterDoc.data();
-      final disasterType = disasterData?['type'] ?? disasterData?['disaster_type'] ?? 'Unknown';
+      final disasterType =
+          disasterData?['type'] ?? disasterData?['disaster_type'] ?? 'Unknown';
       final location = disasterData?['location'] ?? 'Unknown location';
-      final uploaderId = disasterData?['uploader_id'] ?? disasterData?['user_id'];
+      final uploaderId =
+          disasterData?['uploader_id'] ?? disasterData?['user_id'];
 
       // Update disaster status in Firestore
       await FirebaseFirestore.instance
@@ -349,7 +356,8 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 12),
                 Expanded(
-                  child: Text('✅ Disaster marked as resolved!\nNotifications sent to users and admins.'),
+                  child: Text(
+                      '✅ Disaster marked as resolved!\nNotifications sent to users and admins.'),
                 ),
               ],
             ),
@@ -377,6 +385,113 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
     }
   }
 
+  // ✅ New function to approve/verify pending disasters
+  Future<void> _approveDisaster(String disasterId) async {
+    try {
+      // Show confirmation dialog
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF252A34),
+          title: const Text(
+            'Approve & Verify Disaster',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: const Text(
+            'Are you sure you want to approve and verify this disaster alert? '
+            'This will notify all admins and users in the area about the confirmed emergency.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2196F3),
+              ),
+              child: const Text('Approve & Verify'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+
+      // Get disaster details before updating
+      final disasterDoc = await FirebaseFirestore.instance
+          .collection('disaster_alerts')
+          .doc(disasterId)
+          .get();
+
+      final disasterData = disasterDoc.data();
+      final disasterType =
+          disasterData?['type'] ?? disasterData?['disaster_type'] ?? 'Unknown';
+      final location = disasterData?['location'] ?? 'Unknown location';
+      final latitude = disasterData?['latitude'];
+      final longitude = disasterData?['longitude'];
+      final uploaderId =
+          disasterData?['uploader_id'] ?? disasterData?['user_id'];
+
+      // Update disaster status to "active" (approved and verified)
+      await FirebaseFirestore.instance
+          .collection('disaster_alerts')
+          .doc(disasterId)
+          .update({
+        'status': 'active',
+        'approved_at': FieldValue.serverTimestamp(),
+        'approved_by': widget.rescuerEmail,
+        'verified_by_rescuer': true,
+        'rescuer_verified': true,
+      });
+
+      // Send notifications to admins and all users
+      await _sendApprovalNotifications(
+        disasterId: disasterId,
+        disasterType: disasterType,
+        location: location,
+        latitude: latitude,
+        longitude: longitude,
+        uploaderId: uploaderId,
+      );
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.verified, color: Colors.white),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                      '✅ Disaster approved and verified!\nNotifications sent to admins and all users.'),
+                ),
+              ],
+            ),
+            backgroundColor: Color(0xFF2196F3),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+
+      // Refresh the list
+      _loadActiveDisasters();
+    } catch (e) {
+      print('❌ Error approving disaster: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to approve disaster: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _sendResolvedNotifications({
     required String disasterId,
     required String disasterType,
@@ -394,7 +509,8 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
           'disaster_type': disasterType,
           'location': location,
           'title': '✅ Disaster Resolved',
-          'message': 'Your reported $disasterType at $location has been resolved by the rescue team.',
+          'message':
+              'Your reported $disasterType at $location has been resolved by the rescue team.',
           'recipient_id': uploaderId,
           'recipient_type': 'user',
           'timestamp': FieldValue.serverTimestamp(),
@@ -417,7 +533,8 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
           'disaster_type': disasterType,
           'location': location,
           'title': '✅ Disaster Resolved by Rescue Team',
-          'message': 'A $disasterType at $location has been successfully resolved.',
+          'message':
+              'A $disasterType at $location has been successfully resolved.',
           'recipient_id': admin.id,
           'recipient_type': 'admin',
           'timestamp': FieldValue.serverTimestamp(),
@@ -432,9 +549,10 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
           .collection('disaster_alerts')
           .doc(disasterId)
           .get();
-      
-      final notifiedUsers = disasterDoc.data()?['notified_users'] as List<dynamic>? ?? [];
-      
+
+      final notifiedUsers =
+          disasterDoc.data()?['notified_users'] as List<dynamic>? ?? [];
+
       for (var userId in notifiedUsers) {
         await FirebaseFirestore.instance.collection('notifications').add({
           'type': 'disaster_resolved',
@@ -442,7 +560,8 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
           'disaster_type': disasterType,
           'location': location,
           'title': '✅ Disaster Alert Resolved',
-          'message': 'The $disasterType at $location has been resolved. You are now safe.',
+          'message':
+              'The $disasterType at $location has been resolved. You are now safe.',
           'recipient_id': userId,
           'recipient_type': 'user',
           'timestamp': FieldValue.serverTimestamp(),
@@ -459,7 +578,8 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
         'disaster_type': disasterType,
         'location': location,
         'title': '✅ Emergency Resolved',
-        'message': 'A $disasterType emergency at $location has been successfully resolved by our rescue team.',
+        'message':
+            'A $disasterType emergency at $location has been successfully resolved by our rescue team.',
         'recipient_type': 'all',
         'timestamp': FieldValue.serverTimestamp(),
         'resolved_by': widget.rescuerEmail,
@@ -469,6 +589,71 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
       print('✅ All resolution notifications sent successfully');
     } catch (e) {
       print('❌ Error sending notifications: $e');
+    }
+  }
+
+  // ✅ Send approval notifications to admins and all users
+  Future<void> _sendApprovalNotifications({
+    required String disasterId,
+    required String disasterType,
+    required String location,
+    double? latitude,
+    double? longitude,
+    String? uploaderId,
+  }) async {
+    try {
+      print('📤 Sending approval notifications using enhanced system...');
+
+      // ✅ Use the new enhanced notification system
+      if (latitude != null && longitude != null && uploaderId != null) {
+        final notificationService = NotificationService();
+
+        // Get current rescuer ID
+        final currentUser = FirebaseAuth.instance.currentUser;
+        final rescuerId = currentUser?.uid ?? 'unknown';
+
+        // Send comprehensive approval notifications
+        await notificationService.notifyOnDisasterApproval(
+          disasterType: disasterType,
+          latitude: latitude,
+          longitude: longitude,
+          uploaderId: uploaderId,
+          rescuerId: rescuerId,
+        );
+
+        // Also send area-wide emergency notifications to nearby users
+        await notificationService.sendDisasterAlert(
+          disasterType: disasterType,
+          latitude: latitude,
+          longitude: longitude,
+          location: location,
+          uploaderId: uploaderId,
+        );
+
+        print('✅ Enhanced approval notifications sent successfully');
+      } else {
+        print(
+            '⚠️ Missing required data for enhanced notifications, using fallback...');
+
+        // Fallback: Basic notification for incomplete data
+        await FirebaseFirestore.instance.collection('notifications').add({
+          'type': 'disaster_approved',
+          'disaster_id': disasterId,
+          'disaster_type': disasterType,
+          'location': location,
+          'title': '🚨 EMERGENCY ALERT - VERIFIED',
+          'message':
+              'CONFIRMED: $disasterType emergency at $location has been verified by rescue team.',
+          'recipient_type': 'all',
+          'timestamp': FieldValue.serverTimestamp(),
+          'approved_by': widget.rescuerEmail,
+          'read': false,
+          'priority': 'critical',
+        });
+        print('✅ Fallback notification sent');
+      }
+    } catch (e) {
+      print('❌ Error sending approval notifications: $e');
     }
   }
 
@@ -548,8 +733,7 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
             ),
           ],
         ),
-        if (_locating)
-          const Center(child: CircularProgressIndicator()),
+        if (_locating) const Center(child: CircularProgressIndicator()),
         Positioned(
           top: 16,
           right: 16,
@@ -579,7 +763,8 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.check_circle_outline, size: 100, color: Colors.green.shade300),
+              Icon(Icons.check_circle_outline,
+                  size: 100, color: Colors.green.shade300),
               const SizedBox(height: 24),
               const Text(
                 'No Active Disasters',
@@ -633,15 +818,18 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
               itemCount: _disasters.length,
               itemBuilder: (context, index) {
                 final disaster = _disasters[index];
-                final type = disaster['type'] ?? disaster['disaster_type'] ?? 'Unknown';
+                final type =
+                    disaster['type'] ?? disaster['disaster_type'] ?? 'Unknown';
                 final location = disaster['location'] ?? 'Unknown location';
                 final timestamp = disaster['timestamp'] as Timestamp?;
                 final timeStr = timestamp != null
-                    ? DateFormat('MMM dd, yyyy - hh:mm a').format(timestamp.toDate())
+                    ? DateFormat('MMM dd, yyyy - hh:mm a')
+                        .format(timestamp.toDate())
                     : 'Unknown time';
 
                 return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
+                  margin:
+                      const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
                   color: const Color(0xFF252A34),
                   elevation: 4,
                   shape: RoundedRectangleBorder(
@@ -747,16 +935,17 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
   Widget _buildDisasterDetails() {
     final disaster = _selectedDisaster!;
     final type = disaster['type'] ?? disaster['disaster_type'] ?? 'Unknown';
-    final description = disaster['description'] ?? 
-                       disaster['userDescription'] ?? 
-                       disaster['user_description'] ?? 
-                       'No description provided by user';
-    final intensity = disaster['intensity'] ?? disaster['severity'] ?? 'Unknown';
+    final description = disaster['description'] ??
+        disaster['userDescription'] ??
+        disaster['user_description'] ??
+        'No description provided by user';
+    final intensity =
+        disaster['intensity'] ?? disaster['severity'] ?? 'Unknown';
     final location = disaster['location'] ?? 'Unknown location';
-    final mediaUrl = disaster['media_url'] ?? 
-                     disaster['mediaUrl'] ?? 
-                     disaster['photo_url'] ?? 
-                     disaster['photoUrl'];
+    final mediaUrl = disaster['media_url'] ??
+        disaster['mediaUrl'] ??
+        disaster['photo_url'] ??
+        disaster['photoUrl'];
     final timestamp = disaster['timestamp'] as Timestamp?;
     final timeStr = timestamp != null
         ? DateFormat('EEEE, MMM dd, yyyy at hh:mm a').format(timestamp.toDate())
@@ -818,7 +1007,8 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: const Center(
-                              child: Icon(Icons.broken_image, size: 80, color: Colors.grey),
+                              child: Icon(Icons.broken_image,
+                                  size: 80, color: Colors.grey),
                             ),
                           );
                         },
@@ -826,9 +1016,57 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
                     ),
                   const SizedBox(height: 20),
 
+                  // ✅ Status Badge (NEW)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: disaster['status'] == 'pending'
+                          ? Colors.orange
+                          : const Color(0xFF16A085),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (disaster['status'] == 'pending'
+                                  ? Colors.orange
+                                  : const Color(0xFF16A085))
+                              .withOpacity(0.3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          disaster['status'] == 'pending'
+                              ? Icons.hourglass_empty
+                              : Icons.verified,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          disaster['status'] == 'pending'
+                              ? 'PENDING APPROVAL'
+                              : 'VERIFIED & ACTIVE',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
                   // Type Badge
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(
                       color: _getColorForType(type),
                       borderRadius: BorderRadius.circular(25),
@@ -843,7 +1081,8 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(_getIconForType(type), color: Colors.white, size: 20),
+                        Icon(_getIconForType(type),
+                            color: Colors.white, size: 20),
                         const SizedBox(width: 8),
                         Text(
                           type.toUpperCase(),
@@ -872,9 +1111,11 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
                       children: [
                         _buildDetailRow(Icons.access_time, 'Time', timeStr),
                         const Divider(height: 24, color: Colors.white24),
-                        _buildDetailRow(Icons.location_on, 'Location', location),
+                        _buildDetailRow(
+                            Icons.location_on, 'Location', location),
                         const Divider(height: 24, color: Colors.white24),
-                        _buildDetailRow(Icons.warning_amber, 'Intensity', intensity.toString()),
+                        _buildDetailRow(Icons.warning_amber, 'Intensity',
+                            intensity.toString()),
                       ],
                     ),
                   ),
@@ -911,32 +1152,63 @@ class _RescuerDashboardScreenState extends State<RescuerDashboardScreen> {
                   ),
                   const SizedBox(height: 32),
 
-                  // Mark as Resolved Button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 60,
-                    child: ElevatedButton.icon(
-                      onPressed: () => _markAsResolved(disaster['id']),
-                      icon: const Icon(Icons.check_circle, size: 32),
-                      label: const Text(
-                        'MARK AS RESCUED',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
+                  // ✅ Conditional buttons based on disaster status
+                  if (disaster['status'] == 'pending') ...[
+                    // Approve/Verify Button for pending disasters
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _approveDisaster(disaster['id']),
+                        icon: const Icon(Icons.verified, size: 32),
+                        label: const Text(
+                          'APPROVE & VERIFY',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                          ),
                         ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF16A085),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2196F3),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          elevation: 8,
+                          shadowColor: const Color(0xFF2196F3).withOpacity(0.5),
                         ),
-                        elevation: 8,
-                        shadowColor: const Color(0xFF16A085).withOpacity(0.5),
                       ),
                     ),
-                  ),
+                  ] else if (disaster['status'] == 'active') ...[
+                    // Mark as Resolved Button for active disasters
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _markAsResolved(disaster['id']),
+                        icon: const Icon(Icons.check_circle, size: 32),
+                        label: const Text(
+                          'MARK AS RESCUED',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF16A085),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          elevation: 8,
+                          shadowColor: const Color(0xFF16A085).withOpacity(0.5),
+                        ),
+                      ),
+                    ),
+                  ],
+
                   const SizedBox(height: 20),
                 ],
               ),
